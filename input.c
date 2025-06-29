@@ -21,6 +21,7 @@
 // --- Forward Declarations for static functions ---
 static InternalCommand process_osk_chars_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
 static InternalCommand process_osk_special_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
+static void execute_macro(int pty_fd, const char* macro_string, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated);
 static SDL_Keymod get_combined_modifiers(const OnScreenKeyboard* osk);
 static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk);
 static void clear_one_shot_modifiers(OnScreenKeyboard* osk, bool* needs_render_ptr);
@@ -37,7 +38,9 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
 int utf8_strlen(const char* s)
 {
     int len = 0;
-    if (!s) return 0;
+    if (!s) {
+        return 0;
+    }
     while (*s) {
         if ((*s & 0xC0) != 0x80) { // It's a start byte or a single-byte char
             len++;
@@ -57,7 +60,9 @@ int utf8_offset_for_char_index(const char* s, int char_index)
 {
     int current_char = 0;
     const char* start = s;
-    if (!s) return 0;
+    if (!s) {
+        return 0;
+    }
     while (*s) {
         if (current_char == char_index) {
             return (int)(s - start);
@@ -77,12 +82,22 @@ int utf8_offset_for_char_index(const char* s, int char_index)
  */
 int utf8_char_len(const char* s)
 {
-    if (!s) return 0;
+    if (!s) {
+        return 0;
+    }
     unsigned char c = *s;
-    if (c < 0x80) return 1;
-    if ((c & 0xE0) == 0xC0) return 2;
-    if ((c & 0xF0) == 0xE0) return 3;
-    if ((c & 0xF8) == 0xF0) return 4;
+    if (c < 0x80) {
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        return 3;
+    }
+    if ((c & 0xF8) == 0xF0) {
+        return 4;
+    }
     return 1; // Invalid, treat as single byte
 }
 
@@ -179,7 +194,10 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
         }
 
         // Data-driven map for other Ctrl combinations
-        const struct { SDL_Keycode k; const char* s; } map[] = {
+        const struct {
+            SDL_Keycode k;
+            const char* s;
+        } map[] = {
             {SDLK_c, "\x03"}, {SDLK_d, "\x04"}, {SDLK_z, "\x1a"}, {SDLK_l, "\x0c"},
             {SDLK_u, "\x15"}, {SDLK_k, "\x0b"}, {SDLK_w, "\x17"}, {SDLK_a, "\x01"},
             {SDLK_e, "\x05"}, {SDLK_LEFT, "\x1b[1;5D"}, {SDLK_RIGHT, "\x1b[1;5C"},
@@ -206,7 +224,10 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
             return;
         }
         // Data-driven map for other Alt combinations
-        const struct { SDL_Keycode k; const char* s; } map[] = {
+        const struct {
+            SDL_Keycode k;
+            const char* s;
+        } map[] = {
             {SDLK_BACKSPACE, "\x1b\x7f"}, {SDLK_f, "\x1b" "f"}, {SDLK_b, "\x1b" "b"}
         };
         for (size_t i = 0; i < sizeof(map)/sizeof(map[0]); ++i) {
@@ -219,7 +240,10 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
 
     // --- Priority 3: Application-Mode Keys (Cursor, Home/End) ---
     if (term && term->application_cursor_keys_mode) {
-        const struct { SDL_Keycode k; const char* s; } map[] = {
+        const struct {
+            SDL_Keycode k;
+            const char* s;
+        } map[] = {
             {SDLK_UP,    KEY_SEQ_UP_APP},    {SDLK_DOWN,  KEY_SEQ_DOWN_APP},
             {SDLK_RIGHT, KEY_SEQ_RIGHT_APP}, {SDLK_LEFT,  KEY_SEQ_LEFT_APP},
             {SDLK_HOME,  KEY_SEQ_HOME_APP},  {SDLK_END,   KEY_SEQ_END_APP}
@@ -233,7 +257,10 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
     }
 
     // --- Priority 4: Standard Special Keys ---
-    const struct { SDL_Keycode k; const char* s; } map[] = {
+    const struct {
+        SDL_Keycode k;
+        const char* s;
+    } map[] = {
         {SDLK_RETURN,      "\r"},       {SDLK_KP_ENTER,    "\r"},
         {SDLK_BACKSPACE,   "\x7f"},     {SDLK_TAB,         "\t"},
         {SDLK_ESCAPE,      "\x1b"},     {SDLK_SPACE,       " "},
@@ -260,14 +287,19 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
 
     // --- Priority 5: Printable characters (if not handled by SDL_TEXTINPUT) ---
     // This is a fallback for when SDL_TEXTINPUT is not active or for keys that
-    // don't generate text events but are still printable.
-    if (sym >= SDLK_SPACE && sym <= SDLK_z) {
+    // don't generate text events but are still printable. This is essential for
+    // the On-Screen Keyboard to function.
+    // The previous check `sym <= SDLK_z` (122) was incorrect, as it excluded several
+    // common symbols like '{', '|', '}', and '~'. The correct upper bound for
+    // standard printable ASCII is SDLK_TILDE (126).
+    if (sym >= SDLK_SPACE && sym <= '~') {
         char c = (char)sym;
         if (shift_pressed && isalpha(c)) {
             c = (char)toupper(c);
         }
         write(pty_fd, &c, 1);
     }
+
 }
 
 /**
@@ -302,7 +334,16 @@ void send_mouse_wheel_event(int pty_fd, int y_direction)
  */
 void handle_key_down(const SDL_KeyboardEvent* key, int pty_fd, Terminal* term)
 {
-    (void)term; // Unused parameter for now, but might be used for modes later
+    // If the key is a simple printable character without Ctrl/Alt/Gui modifiers,
+    // we let SDL_TEXTINPUT handle it to avoid duplication. This is the fix for
+    // the double-character input issue with physical keyboards.
+    // We still allow Shift to be handled by send_key_event's fallback logic.
+    // The OSK is not affected because it calls send_key_event directly, bypassing this function.
+    SDL_Keycode sym = key->keysym.sym;
+    SDL_Keymod mod = key->keysym.mod;
+    if ((mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)) == 0 && sym >= SDLK_SPACE && sym <= SDLK_z) {
+        return;
+    }
 
     // Check for Ctrl+Shift+C (copy) and Ctrl+Shift+V (paste)
     // Note: SDL_TEXTINPUT handles regular character input. This is for special keys.
@@ -434,13 +475,17 @@ static InternalCommand process_osk_special_action(TerminalAction action, Termina
         break;
     case ACTION_LEFT:
         osk->char_idx = (osk->char_idx == 0) ? (set_len - 1) : (osk->char_idx - 1);
-        if (osk->show_special_set_name) osk->show_special_set_name = false;
+        if (osk->show_special_set_name) {
+            osk->show_special_set_name = false;
+        }
         osk_validate_row_index(osk); // Validate after index change
         *needs_render = true;
         break;
     case ACTION_RIGHT:
         osk->char_idx = (osk->char_idx + 1) % set_len;
-        if (osk->show_special_set_name) osk->show_special_set_name = false;
+        if (osk->show_special_set_name) {
+            osk->show_special_set_name = false;
+        }
         osk_validate_row_index(osk); // Validate after index change
         *needs_render = true;
         break;
@@ -534,17 +579,33 @@ static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
     SDL_Keymod mod = KMOD_NONE;
 
     // 1. Always include virtual (one-shot) modifiers.
-    if (osk->mod_shift) mod |= KMOD_SHIFT;
-    if (osk->mod_ctrl)  mod |= KMOD_CTRL;
-    if (osk->mod_alt)   mod |= KMOD_ALT;
-    if (osk->mod_gui)   mod |= KMOD_GUI;
+    if (osk->mod_shift) {
+        mod |= KMOD_SHIFT;
+    }
+    if (osk->mod_ctrl) {
+        mod |= KMOD_CTRL;
+    }
+    if (osk->mod_alt) {
+        mod |= KMOD_ALT;
+    }
+    if (osk->mod_gui) {
+        mod |= KMOD_GUI;
+    }
 
     // 2. Determine the mask of physically held keys.
     int held_mask = OSK_MOD_NONE;
-    if (osk->held_shift) held_mask |= OSK_MOD_SHIFT;
-    if (osk->held_ctrl)  held_mask |= OSK_MOD_CTRL;
-    if (osk->held_alt)   held_mask |= OSK_MOD_ALT;
-    if (osk->held_gui)   held_mask |= OSK_MOD_GUI;
+    if (osk->held_shift) {
+        held_mask |= OSK_MOD_SHIFT;
+    }
+    if (osk->held_ctrl) {
+        held_mask |= OSK_MOD_CTRL;
+    }
+    if (osk->held_alt) {
+        held_mask |= OSK_MOD_ALT;
+    }
+    if (osk->held_gui) {
+        held_mask |= OSK_MOD_GUI;
+    }
 
     // 3. Check if the held keys correspond to a defined character layer.
     bool layer_exists_for_held_keys = (held_mask != OSK_MOD_NONE) &&
@@ -552,13 +613,100 @@ static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
 
     // 4. Only add physical modifiers to the key event if they did NOT cause a layer switch.
     if (!layer_exists_for_held_keys) {
-        if (osk->held_shift) mod |= KMOD_SHIFT;
-        if (osk->held_ctrl)  mod |= KMOD_CTRL;
-        if (osk->held_alt)   mod |= KMOD_ALT;
-        if (osk->held_gui)   mod |= KMOD_GUI;
+        if (osk->held_shift) {
+            mod |= KMOD_SHIFT;
+        }
+        if (osk->held_ctrl) {
+            mod |= KMOD_CTRL;
+        }
+        if (osk->held_alt) {
+            mod |= KMOD_ALT;
+        }
+        if (osk->held_gui) {
+            mod |= KMOD_GUI;
+        }
     }
 
     return mod;
+}
+
+/**
+ * @brief Executes a macro string, which can contain literal text and special key tokens.
+ * @param pty_fd The PTY file descriptor.
+ * @param macro_string The string to parse and execute.
+ * @param term The terminal state.
+ * @param osk The OnScreenKeyboard state.
+ * @param ui_updated Pointer to a boolean, set to true if the OSK UI needs a redraw.
+ */
+static void execute_macro(int pty_fd, const char* macro_string, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated)
+{
+    const char* p = macro_string;
+    const char* segment_start = p;
+    bool consumed_one_shot = false;
+
+    while (*p) {
+        // Handle escaped literal brace
+        if (*p == '\\' && *(p + 1) == '{') {
+            // Write segment before the escaped brace
+            if (p > segment_start) {
+                char* segment = strndup(segment_start, p - segment_start);
+                if (segment) {
+                    send_text_input_event(pty_fd, segment);
+                    free(segment);
+                }
+            }
+            // Write the literal brace
+            send_text_input_event(pty_fd, "{");
+            p += 2; // Move past \{
+            segment_start = p;
+            continue;
+        }
+
+        // Handle token
+        if (*p == '{') {
+            const LayoutToken* token = osk_find_layout_token(p);
+            if (token) {
+                // Write segment before the token
+                if (p > segment_start) {
+                    char* segment = strndup(segment_start, p - segment_start);
+                    if (segment) {
+                        send_text_input_event(pty_fd, segment);
+                        free(segment);
+                    }
+                }
+
+                // Handle the token's action
+                if (token->type == SK_SEQUENCE) {
+                    SDL_Keymod mods = get_effective_send_modifiers(osk);
+                    send_key_event(pty_fd, token->keycode, mods, term);
+                    consumed_one_shot = true;
+                } else if (token->type >= SK_MOD_CTRL && token->type <= SK_MOD_GUI) {
+                    if (token->type == SK_MOD_CTRL) {
+                        osk->mod_ctrl = !osk->mod_ctrl;
+                    } else if (token->type == SK_MOD_ALT) {
+                        osk->mod_alt = !osk->mod_alt;
+                    } else if (token->type == SK_MOD_SHIFT) {
+                        osk->mod_shift = !osk->mod_shift;
+                    } else if (token->type == SK_MOD_GUI) {
+                        osk->mod_gui = !osk->mod_gui;
+                    }
+                    *ui_updated = true;
+                }
+
+                p += strlen(token->token);
+                segment_start = p;
+                continue;
+            }
+        }
+        p++; // Not a special character, just advance
+    }
+
+    if (p > segment_start) {
+        send_text_input_event(pty_fd, segment_start);
+    }
+    if (consumed_one_shot) {
+        clear_one_shot_modifiers(osk, ui_updated);
+    }
 }
 
 /**
@@ -578,10 +726,16 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
     bool is_modifier_key = false;
 
     switch (key->type) {
-    case SK_STRING:
+    case SK_STRING: // A literal string with no tokens
         if (key->sequence) {
             send_text_input_event(pty_fd, key->sequence);
         }
+        break;
+    case SK_MACRO: // A string that may contain tokens
+        if (key->sequence) {
+            execute_macro(pty_fd, key->sequence, term, osk, ui_updated);
+        }
+        // Macro execution handles its own one-shot clearing.
         break;
     case SK_LOAD_FILE:
         if (key->sequence) {
@@ -626,7 +780,7 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
     }
 
     // Clear one-shot modifiers if a non-modifier key was selected.
-    if (!is_modifier_key) {
+    if (!is_modifier_key && key->type != SK_MACRO) {
         clear_one_shot_modifiers(osk, ui_updated);
     }
     return cmd;
@@ -642,105 +796,69 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
  * @param pty_fd The PTY file descriptor.
  * @return An InternalCommand if one is triggered, otherwise CMD_NONE.
  */
-InternalCommand process_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd)
+InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd)
 {
-    if (action == ACTION_TOGGLE_OSK) {
-        // This action cycles through states: OFF -> CHARS -> SPECIAL -> (conditional)
-        if (!osk->active) {
-            // State: OFF. Action: Turn ON to CHARS mode.
-            osk->active = true;
-            osk->mode = OSK_MODE_CHARS;
-            osk->set_idx = 0;
-            osk->char_idx = 0;
-            osk_validate_row_index(osk);
-            osk->show_special_set_name = false;
-        } else if (osk->mode == OSK_MODE_CHARS) {
-            // State: ON, CHARS mode. Action: Switch to SPECIAL mode.
-            // One-shot modifiers are intentionally kept active during this transition.
-            osk->mode = OSK_MODE_SPECIAL;
-            osk->set_idx = 0;
-            osk->char_idx = 0;
-            osk_validate_row_index(osk);
-            osk->show_special_set_name = true;
+    // Delegate to the appropriate handler based on the current OSK mode.
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        return process_osk_special_action(action, term, osk, needs_render, pty_fd);
+    } else { // OSK_MODE_CHARS
+        return process_osk_chars_action(action, term, osk, needs_render, pty_fd);
+    }
+}
+
+/**
+ * @brief Processes a terminal action when the OSK is inactive.
+ * This translates abstract actions (from a controller) into direct PTY input.
+ */
+void process_direct_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd)
+{
+    SDL_Keymod mods = get_combined_modifiers(osk);
+    bool consumed_one_shot = false;
+
+    switch (action) {
+    case ACTION_UP:
+        send_key_event(pty_fd, SDLK_UP, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_DOWN:
+        send_key_event(pty_fd, SDLK_DOWN, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_LEFT:
+        send_key_event(pty_fd, SDLK_LEFT, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_RIGHT:
+        send_key_event(pty_fd, SDLK_RIGHT, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_BACK:
+        send_key_event(pty_fd, SDLK_BACKSPACE, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_SPACE:
+        if (mods != KMOD_NONE) {
+            send_key_event(pty_fd, SDLK_SPACE, mods, term);
         } else {
-            // State: ON, SPECIAL mode. Action is conditional.
-            bool any_one_shot_modifier_active = osk->mod_ctrl || osk->mod_alt || osk->mod_shift || osk->mod_gui;
-            if (any_one_shot_modifier_active) {
-                // If modifiers are on, go back to CHARS mode but keep modifiers.
-                osk->mode = OSK_MODE_CHARS;
-                osk_validate_row_index(osk);
-                osk->show_special_set_name = false;
-            } else {
-                // If no modifiers are on, turn the OSK OFF.
-                osk->active = false;
-                osk->show_special_set_name = false;
-            }
+            send_text_input_event(pty_fd, " ");
         }
-        *needs_render = true; // Always needs render after OSK state change
-        return CMD_NONE;
+        consumed_one_shot = true;
+        break;
+    case ACTION_TAB:
+        send_key_event(pty_fd, SDLK_TAB, mods, term);
+        consumed_one_shot = true;
+        break;
+    case ACTION_ENTER:
+        send_key_event(pty_fd, SDLK_RETURN, mods, term);
+        consumed_one_shot = true;
+        break;
+    default:
+        break;
     }
 
-    if (osk->active) {
-        // Delegate to the appropriate handler based on the current OSK mode.
-        if (osk->mode == OSK_MODE_SPECIAL) {
-            return process_osk_special_action(action, term, osk, needs_render, pty_fd);
-        } else { // OSK_MODE_CHARS
-            return process_osk_chars_action(action, term, osk, needs_render, pty_fd);
-        }
-    } else {
-        // --- OSK is INACTIVE (Direct Input) ---
-        SDL_Keymod mods = get_combined_modifiers(osk);
-        bool consumed_one_shot = false;
-
-        switch (action) {
-        case ACTION_UP:
-            send_key_event(pty_fd, SDLK_UP, mods, term);
-            consumed_one_shot = true;
-            break;
-        case ACTION_DOWN:
-            send_key_event(pty_fd, SDLK_DOWN, mods, term);
-            consumed_one_shot = true;
-            break;
-        case ACTION_LEFT:
-            send_key_event(pty_fd, SDLK_LEFT, mods, term);
-            consumed_one_shot = true;
-            break;
-        case ACTION_RIGHT:
-            send_key_event(pty_fd, SDLK_RIGHT, mods, term);
-            consumed_one_shot = true;
-            break;
-
-        case ACTION_BACK:
-            send_key_event(pty_fd, SDLK_BACKSPACE, mods, term);
-            consumed_one_shot = true;
-            break;
-        case ACTION_SPACE:
-            if (mods != KMOD_NONE) {
-                send_key_event(pty_fd, SDLK_SPACE, mods, term);
-            } else {
-                send_text_input_event(pty_fd, " ");
-            }
-            consumed_one_shot = true;
-            break;
-        case ACTION_TAB:
-            send_key_event(pty_fd, SDLK_TAB, mods, term);
-            consumed_one_shot = true;
-            break;
-        case ACTION_ENTER:
-            send_key_event(pty_fd, SDLK_RETURN, mods, term);
-            consumed_one_shot = true;
-            break;
-
-        default:
-            break;
-        }
-
-        if (consumed_one_shot) {
-            clear_one_shot_modifiers(osk, needs_render);
-        }
+    if (consumed_one_shot) {
+        clear_one_shot_modifiers(osk, needs_render);
     }
-
-    return CMD_NONE;
 }
 
 /**
@@ -748,7 +866,8 @@ InternalCommand process_terminal_action(TerminalAction action, Terminal* term, O
  * @param osk Pointer to the OnScreenKeyboard state.
  * @param config Pointer to the application configuration.
  */
-void init_input_devices(OnScreenKeyboard* osk, const Config* config) {
+void init_input_devices(OnScreenKeyboard* osk, const Config* config)
+{
     // Initialize SDL Joystick and GameController subsystems
     if (SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) < 0) {
         fprintf(stderr, "SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) failed: %s\n", SDL_GetError());

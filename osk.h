@@ -3,6 +3,13 @@
 
 #include "terminal_state.h"
 
+typedef struct {
+    const char* token;       // e.g., "{ENTER}"
+    const char* display;     // e.g., "ENT"
+    SpecialKeyType type;     // e.g., SK_SEQUENCE
+    SDL_Keycode keycode;     // e.g., SDLK_RETURN
+} LayoutToken;
+
 // Function pointer types for OSK key rendering callbacks
 typedef const char* (*OSK_GetDisplayNameFunc)(const OnScreenKeyboard* osk, int set_idx, int char_idx);
 typedef bool (*OSK_IsKeyToggledFunc)(const Terminal* term, const OnScreenKeyboard* osk, int set_idx, int char_idx);
@@ -32,5 +39,7 @@ void osk_make_set_available(OnScreenKeyboard* osk, const char* path); // New for
 void osk_add_custom_set(OnScreenKeyboard* osk, const char* path); // For dynamic loading
 void osk_remove_custom_set(OnScreenKeyboard* osk, const char* name); // New for dynamic unloading
 void osk_free_all_sets(OnScreenKeyboard* osk); // Renamed from osk_free_custom_sets
+
+const LayoutToken* osk_find_layout_token(const char* str_start);
 
 #endif // OSK_H

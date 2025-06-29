@@ -430,7 +430,8 @@ void render_credit_screen(SDL_Renderer* renderer, TTF_Font* font, int win_w, int
                                  "Start:       Enter",
                                  "Back:        Tab",
                                  "Back+Start:  Exit",
-                                 NULL };
+                                 NULL
+                               };
 
     const char* usage_col2[] = { "--- OSK Off (Terminal) ---",
                                  "L1:          Scroll Up",
@@ -441,7 +442,8 @@ void render_credit_screen(SDL_Renderer* renderer, TTF_Font* font, int win_w, int
                                  "R1:          Ctrl",
                                  "L2:          Alt",
                                  "R2:          GUI",
-                                 NULL };
+                                 NULL
+                               };
 
     const int spacing_after_sepates = 3*text_h;
 

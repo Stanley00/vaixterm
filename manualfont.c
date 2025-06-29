@@ -96,25 +96,59 @@ static bool draw_box_character(SDL_Renderer* renderer, uint32_t c, int rx, int r
         }
     }
 
-    if (flags == 0) return false; // Not a recognized box character
+    if (flags == 0) {
+        return false;    // Not a recognized box character
+    }
 
     // Draw light lines
-    if (flags & BOX_U) SDL_RenderDrawLine(renderer, mid_x, ry, mid_x, mid_y);
-    if (flags & BOX_D) SDL_RenderDrawLine(renderer, mid_x, mid_y, mid_x, end_y);
-    if (flags & BOX_L) SDL_RenderDrawLine(renderer, rx, mid_y, mid_x, mid_y);
-    if (flags & BOX_R) SDL_RenderDrawLine(renderer, mid_x, mid_y, end_x, mid_y);
+    if (flags & BOX_U) {
+        SDL_RenderDrawLine(renderer, mid_x, ry, mid_x, mid_y);
+    }
+    if (flags & BOX_D) {
+        SDL_RenderDrawLine(renderer, mid_x, mid_y, mid_x, end_y);
+    }
+    if (flags & BOX_L) {
+        SDL_RenderDrawLine(renderer, rx, mid_y, mid_x, mid_y);
+    }
+    if (flags & BOX_R) {
+        SDL_RenderDrawLine(renderer, mid_x, mid_y, end_x, mid_y);
+    }
 
     // Draw heavy lines
-    if (flags & BOX_HU) { SDL_Rect r = {mid_x - heavy_offset, ry, heavy_thickness, rh / 2 + 1}; SDL_RenderFillRect(renderer, &r); }
-    if (flags & BOX_HD) { SDL_Rect r = {mid_x - heavy_offset, mid_y, heavy_thickness, rh / 2 + 1}; SDL_RenderFillRect(renderer, &r); }
-    if (flags & BOX_HL) { SDL_Rect r = {rx, mid_y - heavy_offset, rw / 2 + 1, heavy_thickness}; SDL_RenderFillRect(renderer, &r); }
-    if (flags & BOX_HR) { SDL_Rect r = {mid_x, mid_y - heavy_offset, rw / 2 + 1, heavy_thickness}; SDL_RenderFillRect(renderer, &r); }
+    if (flags & BOX_HU) {
+        SDL_Rect r = {mid_x - heavy_offset, ry, heavy_thickness, rh / 2 + 1};
+        SDL_RenderFillRect(renderer, &r);
+    }
+    if (flags & BOX_HD) {
+        SDL_Rect r = {mid_x - heavy_offset, mid_y, heavy_thickness, rh / 2 + 1};
+        SDL_RenderFillRect(renderer, &r);
+    }
+    if (flags & BOX_HL) {
+        SDL_Rect r = {rx, mid_y - heavy_offset, rw / 2 + 1, heavy_thickness};
+        SDL_RenderFillRect(renderer, &r);
+    }
+    if (flags & BOX_HR) {
+        SDL_Rect r = {mid_x, mid_y - heavy_offset, rw / 2 + 1, heavy_thickness};
+        SDL_RenderFillRect(renderer, &r);
+    }
 
     // Draw double lines
-    if (flags & BOX_DU) { SDL_RenderDrawLine(renderer, dbl_x1, ry, dbl_x1, mid_y); SDL_RenderDrawLine(renderer, dbl_x2, ry, dbl_x2, mid_y); }
-    if (flags & BOX_DD) { SDL_RenderDrawLine(renderer, dbl_x1, mid_y, dbl_x1, end_y); SDL_RenderDrawLine(renderer, dbl_x2, mid_y, dbl_x2, end_y); }
-    if (flags & BOX_DL) { SDL_RenderDrawLine(renderer, rx, dbl_y1, mid_x, dbl_y1); SDL_RenderDrawLine(renderer, rx, dbl_y2, mid_x, dbl_y2); }
-    if (flags & BOX_DR) { SDL_RenderDrawLine(renderer, mid_x, dbl_y1, end_x, dbl_y1); SDL_RenderDrawLine(renderer, mid_x, dbl_y2, end_x, dbl_y2); }
+    if (flags & BOX_DU) {
+        SDL_RenderDrawLine(renderer, dbl_x1, ry, dbl_x1, mid_y);
+        SDL_RenderDrawLine(renderer, dbl_x2, ry, dbl_x2, mid_y);
+    }
+    if (flags & BOX_DD) {
+        SDL_RenderDrawLine(renderer, dbl_x1, mid_y, dbl_x1, end_y);
+        SDL_RenderDrawLine(renderer, dbl_x2, mid_y, dbl_x2, end_y);
+    }
+    if (flags & BOX_DL) {
+        SDL_RenderDrawLine(renderer, rx, dbl_y1, mid_x, dbl_y1);
+        SDL_RenderDrawLine(renderer, rx, dbl_y2, mid_x, dbl_y2);
+    }
+    if (flags & BOX_DR) {
+        SDL_RenderDrawLine(renderer, mid_x, dbl_y1, end_x, dbl_y1);
+        SDL_RenderDrawLine(renderer, mid_x, dbl_y2, end_x, dbl_y2);
+    }
 
     return true;
 }

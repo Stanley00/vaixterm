@@ -58,14 +58,7 @@ static const char* s_default_layout_content =
     "ZXCVBNM\n"
     "{ESC}{F1}{F2}{F3}{F4}{F5}{F6}{F7}{F8}{F9}{F10}{F11}{F12}\n"
     "~!@#$%^&*()\n"
-;
-
-typedef struct {
-    const char* token;       // e.g., "{ENTER}"
-    const char* display;     // e.g., "ENT"
-    SpecialKeyType type;     // e.g., SK_SEQUENCE
-    SDL_Keycode keycode;     // e.g., SDLK_RETURN
-} LayoutToken;
+    ;
 
 // Tokens are ordered by length (descending) to handle prefixes correctly (e.g., {F1} vs {F10}).
 static const LayoutToken s_layout_tokens[] = {
@@ -110,6 +103,22 @@ static const LayoutToken s_layout_tokens[] = {
 static const int s_num_layout_tokens = sizeof(s_layout_tokens) / sizeof(s_layout_tokens[0]);
 
 /**
+ * @brief Finds a layout token (e.g., "{ENTER}") at the start of a string.
+ * @param str_start The string to search.
+ * @return A pointer to the matching LayoutToken, or NULL if not found.
+ */
+const LayoutToken* osk_find_layout_token(const char* str_start)
+{
+    for (int t = 0; t < s_num_layout_tokens; ++t) {
+        size_t token_len = strlen(s_layout_tokens[t].token);
+        if (strncmp(str_start, s_layout_tokens[t].token, token_len) == 0) {
+            return &s_layout_tokens[t];
+        }
+    }
+    return NULL;
+}
+
+/**
  * @brief Determines the Y-coordinate for the OSK based on the terminal cursor's position.
  * Positions the OSK at the top if the cursor is in the bottom half, and vice-versa.
  * @return The Y-coordinate for the top of the OSK bar.
@@ -140,7 +149,8 @@ int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int wi
  * This forces a recalculation of values like fixed key width on the next render pass.
  * It should be called whenever the OSK's layout or content changes.
  */
-static void osk_invalidate_render_cache(OnScreenKeyboard* osk) {
+static void osk_invalidate_render_cache(OnScreenKeyboard* osk)
+{
     osk->cached_set_idx = -1;
     osk->cached_mod_mask = -1;
     osk->cached_key_width = -1;
@@ -169,12 +179,21 @@ static const char* get_char_display_name(const OnScreenKeyboard* osk, int set_id
  * @param osk The OnScreenKeyboard state.
  * @return The OSK_MOD_ bitmask.
  */
-static int get_physical_modifier_mask(const OnScreenKeyboard* osk) {
+static int get_physical_modifier_mask(const OnScreenKeyboard* osk)
+{
     int held_mask = OSK_MOD_NONE;
-    if (osk->held_shift) held_mask |= OSK_MOD_SHIFT;
-    if (osk->held_ctrl)  held_mask |= OSK_MOD_CTRL;
-    if (osk->held_alt)   held_mask |= OSK_MOD_ALT;
-    if (osk->held_gui)   held_mask |= OSK_MOD_GUI;
+    if (osk->held_shift) {
+        held_mask |= OSK_MOD_SHIFT;
+    }
+    if (osk->held_ctrl) {
+        held_mask |= OSK_MOD_CTRL;
+    }
+    if (osk->held_alt) {
+        held_mask |= OSK_MOD_ALT;
+    }
+    if (osk->held_gui) {
+        held_mask |= OSK_MOD_GUI;
+    }
     return held_mask;
 }
 
@@ -205,7 +224,9 @@ const SpecialKeySet* osk_get_effective_row_ptr(const OnScreenKeyboard* osk, int 
     // Fallback to the default layer's row if no specific one was found or if a {DEFAULT} marker was hit.
     if (osk->char_sets_by_modifier[OSK_MOD_NONE] != NULL && set_idx < osk->num_char_rows_by_modifier[OSK_MOD_NONE]) {
         const SpecialKeySet* row = &osk->char_sets_by_modifier[OSK_MOD_NONE][set_idx];
-        if (row->length != -1) return row;
+        if (row->length != -1) {
+            return row;
+        }
     }
 
     return NULL;
@@ -215,7 +236,8 @@ const SpecialKeySet* osk_get_effective_row_ptr(const OnScreenKeyboard* osk, int 
  * @param osk The OnScreenKeyboard state.
  * @return The number of rows.
  */
-int get_current_num_char_rows(const OnScreenKeyboard* osk) {
+int get_current_num_char_rows(const OnScreenKeyboard* osk)
+{
     int target_mask = get_physical_modifier_mask(osk);
 
     // Find the most specific layer that is a subset of the target mask.
@@ -230,7 +252,8 @@ int get_current_num_char_rows(const OnScreenKeyboard* osk) {
     return 0;
 }
 
-void osk_validate_row_index(OnScreenKeyboard* osk) {
+void osk_validate_row_index(OnScreenKeyboard* osk)
+{
     bool reset_to_zero = false;
 
     if (osk->mode == OSK_MODE_CHARS) {
@@ -276,7 +299,8 @@ void osk_validate_row_index(OnScreenKeyboard* osk) {
  * @param char_idx The index of the character within the row.
  * @return A pointer to the character within the layout string, or NULL if none found.
  */
-const SpecialKey* osk_get_effective_char_ptr(const OnScreenKeyboard* osk, int set_idx, int char_idx) {
+const SpecialKey* osk_get_effective_char_ptr(const OnScreenKeyboard* osk, int set_idx, int char_idx)
+{
     int target_mask = get_physical_modifier_mask(osk);
 
     // 1. Get the ultimate fallback key from the [default] layer, if it exists.
@@ -386,7 +410,7 @@ static int calculate_fixed_key_width(TTF_Font* font, OnScreenKeyboard* osk, int 
     int current_mod_mask = get_physical_modifier_mask(osk);
 
     if (osk->cached_set_idx == osk->set_idx && osk->cached_mode == osk->mode &&
-        (osk->mode == OSK_MODE_SPECIAL || osk->cached_mod_mask == current_mod_mask)) { // Only check mod mask for char mode
+            (osk->mode == OSK_MODE_SPECIAL || osk->cached_mod_mask == current_mod_mask)) { // Only check mod mask for char mode
         return osk->cached_key_width;
     }
 
@@ -559,7 +583,7 @@ static void render_modifier_indicators(SDL_Renderer* renderer, TTF_Font* font, O
 {
     // Check both internal OSK modifiers and held controller modifiers
     if (!osk->mod_ctrl && !osk->mod_alt && !osk->mod_shift && !osk->mod_gui &&
-        !osk->held_ctrl && !osk->held_shift && !osk->held_alt && !osk->held_gui) {
+            !osk->held_ctrl && !osk->held_shift && !osk->held_alt && !osk->held_gui) {
         return;
     }
 
@@ -772,7 +796,8 @@ static SpecialKeySet process_layout_line(const char* input)
  * @param layout The char** array to free.
  * @param num_rows The number of rows in the layout.
  */
-static void free_char_layout_rows(SpecialKeySet* rows, int num_rows) {
+static void free_char_layout_rows(SpecialKeySet* rows, int num_rows)
+{
     if (rows) {
         for (int i = 0; i < num_rows; ++i) {
             for (int j = 0; j < rows[i].length; ++j) {
@@ -793,7 +818,8 @@ static void free_char_layout_rows(SpecialKeySet* rows, int num_rows) {
  * @param mod_name The string name (e.g., "normal", "shift", "ctrl+alt").
  * @return The corresponding OSK_MOD_ bitmask, or -1 if invalid.
  */
-static int get_modifier_mask_from_name(char* mod_name_non_const) {
+static int get_modifier_mask_from_name(char* mod_name_non_const)
+{
     int mask = OSK_MOD_NONE;
     char* saveptr;
     char* p;
@@ -841,7 +867,8 @@ static int get_modifier_mask_from_name(char* mod_name_non_const) {
  * @param temp_capacity A temporary array to store the capacity for each modifier's row array.
  * @return True on success, false on failure.
  */
-static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_sets_by_modifier, int* temp_num_rows, int* temp_capacity) {
+static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_sets_by_modifier, int* temp_num_rows, int* temp_capacity)
+{
     char* content_copy = strdup(content);
     if (!content_copy) {
         fprintf(stderr, "Failed to allocate memory for layout content copy.\n");
@@ -856,9 +883,13 @@ static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_s
         line[strcspn(line, "\r")] = 0;
 
         char* end = line + strlen(line) - 1;
-        while (end >= line && isspace((unsigned char)*end)) *end-- = '\0';
+        while (end >= line && isspace((unsigned char)*end)) {
+            *end-- = '\0';
+        }
         char* start = line;
-        while (*start && isspace((unsigned char)*start)) start++;
+        while (*start && isspace((unsigned char)*start)) {
+            start++;
+        }
 
         if (start[0] == '#' || start[0] == '\0') {
             line = strtok_r(NULL, "\n", &line_saveptr);
@@ -1105,7 +1136,10 @@ static bool parse_key_set_line(char* line, SpecialKey* key)
     }
 
     // Check if value_str is an internal command
-    const struct { const char* name; InternalCommand cmd; } cmd_map[] = {
+    const struct {
+        const char* name;
+        InternalCommand cmd;
+    } cmd_map[] = {
         {"CMD_FONT_INC", CMD_FONT_INC},
         {"CMD_FONT_DEC", CMD_FONT_DEC},
         {"CMD_CURSOR_TOGGLE_VISIBILITY", CMD_CURSOR_TOGGLE_VISIBILITY},
@@ -1123,12 +1157,49 @@ static bool parse_key_set_line(char* line, SpecialKey* key)
         }
     }
 
-    // If value_str is a quoted string, it's always SK_STRING.
+    // If value_str is a quoted string, it could be SK_STRING or SK_MACRO.
     size_t value_len = strlen(value_str);
     if (value_len >= 2 && value_str[0] == '"' && value_str[value_len - 1] == '"') {
-        key->type = SK_STRING;
-        value_str[value_len - 1] = '\0';
-        key->sequence = strdup(value_str + 1);
+        value_str[value_len - 1] = '\0'; // Unquote
+        char* content = value_str + 1;
+
+        // Scan for unescaped '{' which indicates a token/macro.
+        bool has_tokens = false;
+        for (const char* p = content; *p; ++p) {
+            if (*p == '\\' && *(p + 1) == '{') {
+                p++; // Skip the escaped brace, continue scanning
+                continue;
+            }
+            if (*p == '{' && osk_find_layout_token(p)) {
+                has_tokens = true;
+                break;
+            }
+        }
+
+        if (has_tokens) {
+            key->type = SK_MACRO;
+            key->sequence = strdup(content); // Store raw content with escapes
+        } else {
+            // No tokens, so it's a simple string. We need to unescape `\{` to `{`.
+            key->type = SK_STRING;
+            char* unescaped_str = malloc(strlen(content) + 1);
+            if (unescaped_str) {
+                char* writer = unescaped_str;
+                for (const char* reader = content; *reader; ++reader) {
+                    if (*reader == '\\' && *(reader + 1) == '{') {
+                        *writer++ = '{';
+                        reader++; // Skip the brace that was just handled
+                    } else {
+                        *writer++ = *reader;
+                    }
+                }
+                *writer = '\0';
+                key->sequence = unescaped_str;
+            } else {
+                key->sequence = NULL; // Malloc failed
+            }
+        }
+
         if (!key->sequence) {
             free(key->display_name);
             return false;
@@ -1310,7 +1381,9 @@ static bool add_to_available_list(OnScreenKeyboard* osk, const char* path)
         return false;
     }
     osk->available_dynamic_key_sets = temp;
-    osk->available_dynamic_key_sets[osk->num_available_dynamic_key_sets] = (SpecialKeySet){ .name = set_name, .file_path = strdup(path), .keys = NULL, .length = 0, .is_dynamic = true };
+    osk->available_dynamic_key_sets[osk->num_available_dynamic_key_sets] = (SpecialKeySet) {
+        .name = set_name, .file_path = strdup(path), .keys = NULL, .length = 0, .is_dynamic = true
+    };
     osk->num_available_dynamic_key_sets++;
 
     return true; // It was a new addition

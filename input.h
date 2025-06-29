@@ -21,7 +21,8 @@ void send_mouse_wheel_event(int pty_fd, int y_direction);
 
 // Event handlers
 void handle_key_down(const SDL_KeyboardEvent* key, int pty_fd, Terminal* term);
-InternalCommand process_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
+InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
+void process_direct_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
 void init_input_devices(OnScreenKeyboard* osk, const Config* config); // Modified: Added Config* parameter
 
 #endif // INPUT_H

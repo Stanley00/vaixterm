@@ -688,118 +688,131 @@ Glyph* terminal_get_view_line(Terminal* term, int y)
 
 // --- CSI Private Mode ('?') Handlers ---
 
-static void csi_h_private(Terminal* term) {
-	for (int i = 0; i < term->csi_param_count; ++i) {
-		if (term->csi_params[i] == 1) {
-			term->application_cursor_keys_mode = true;
-		}
-		if (term->csi_params[i] == 6) {
-			term->origin_mode = true;
-			term->cursor_x = 0;
-			term->cursor_y = term->scroll_top - 1;
-		}
-		if (term->csi_params[i] == 7) {
-			term->autowrap_mode = true;
-		}
-		if (term->csi_params[i] == 66) {
-			term->application_keypad_mode = true;
-		}
-		if (term->csi_params[i] == 25) {
-			term->cursor_visible = true;
-		}
+static void csi_h_private(Terminal* term)
+{
+    for (int i = 0; i < term->csi_param_count; ++i) {
+        if (term->csi_params[i] == 1) {
+            term->application_cursor_keys_mode = true;
+        }
+        if (term->csi_params[i] == 6) {
+            term->origin_mode = true;
+            term->cursor_x = 0;
+            term->cursor_y = term->scroll_top - 1;
+        }
+        if (term->csi_params[i] == 7) {
+            term->autowrap_mode = true;
+        }
+        if (term->csi_params[i] == 66) {
+            term->application_keypad_mode = true;
+        }
+        if (term->csi_params[i] == 25) {
+            term->cursor_visible = true;
+        }
 
-		if (term->csi_params[i] == 1049) {
-			if (!term->alt_screen_active) {
-				if (!term->alt_grid) {
-					term->alt_grid = malloc(sizeof(Glyph) * (size_t)term->cols * (size_t)term->rows);
-				}
-				if (term->alt_grid) {
-					term->normal_saved_cursor_x = term->cursor_x;
-					term->normal_saved_cursor_y = term->cursor_y;
-					term->alt_screen_active = true;
-					terminal_clear_visible_screen(term);
-					term->cursor_x = 0;
-					term->cursor_y = 0;
-				} else {
-					fprintf(stderr, "Failed to allocate alternate screen buffer\n");
-				}
-			}
-		}
-	}
+        if (term->csi_params[i] == 1049) {
+            if (!term->alt_screen_active) {
+                if (!term->alt_grid) {
+                    term->alt_grid = malloc(sizeof(Glyph) * (size_t)term->cols * (size_t)term->rows);
+                }
+                if (term->alt_grid) {
+                    term->normal_saved_cursor_x = term->cursor_x;
+                    term->normal_saved_cursor_y = term->cursor_y;
+                    term->alt_screen_active = true;
+                    terminal_clear_visible_screen(term);
+                    term->cursor_x = 0;
+                    term->cursor_y = 0;
+                } else {
+                    fprintf(stderr, "Failed to allocate alternate screen buffer\n");
+                }
+            }
+        }
+    }
 }
 
-static void csi_l_private(Terminal* term) {
-	for (int i = 0; i < term->csi_param_count; ++i) {
-		if (term->csi_params[i] == 1) {
-			term->application_cursor_keys_mode = false;
-		}
-		if (term->csi_params[i] == 6) {
-			term->origin_mode = false;
-			term->cursor_x = 0;
-			term->cursor_y = 0;
-		}
-		if (term->csi_params[i] == 7) {
-			term->autowrap_mode = false;
-		}
-		if (term->csi_params[i] == 66) {
-			term->application_keypad_mode = false;
-		}
-		if (term->csi_params[i] == 25) {
-			term->cursor_visible = false;
-		}
+static void csi_l_private(Terminal* term)
+{
+    for (int i = 0; i < term->csi_param_count; ++i) {
+        if (term->csi_params[i] == 1) {
+            term->application_cursor_keys_mode = false;
+        }
+        if (term->csi_params[i] == 6) {
+            term->origin_mode = false;
+            term->cursor_x = 0;
+            term->cursor_y = 0;
+        }
+        if (term->csi_params[i] == 7) {
+            term->autowrap_mode = false;
+        }
+        if (term->csi_params[i] == 66) {
+            term->application_keypad_mode = false;
+        }
+        if (term->csi_params[i] == 25) {
+            term->cursor_visible = false;
+        }
 
-		if (term->csi_params[i] == 1049) {
-			if (term->alt_screen_active) {
-				term->alt_screen_active = false;
-				term->cursor_x = term->normal_saved_cursor_x;
-				term->cursor_y = term->normal_saved_cursor_y;
-				term->full_redraw_needed = true;
-			}
-		}
-	}
+        if (term->csi_params[i] == 1049) {
+            if (term->alt_screen_active) {
+                term->alt_screen_active = false;
+                term->cursor_x = term->normal_saved_cursor_x;
+                term->cursor_y = term->normal_saved_cursor_y;
+                term->full_redraw_needed = true;
+            }
+        }
+    }
 }
 
 // --- CSI Public Mode Handlers ---
 
-static void csi_A(Terminal* term) { // Cursor Up
+static void csi_A(Terminal* term)   // Cursor Up
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_max(term->scroll_top - 1, term->cursor_y - p1);
 }
 
-static void csi_B(Terminal* term) { // Cursor Down
+static void csi_B(Terminal* term)   // Cursor Down
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_min(term->scroll_bottom - 1, term->cursor_y + p1);
 }
 
-static void csi_C(Terminal* term) { // Cursor Forward
+static void csi_C(Terminal* term)   // Cursor Forward
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x + p1);
 }
 
-static void csi_D(Terminal* term) { // Cursor Back
+static void csi_D(Terminal* term)   // Cursor Back
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_x = SDL_max(0, term->cursor_x - p1);
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x);
 }
 
-static void csi_G(Terminal* term) { // Cursor Horizontal Absolute
+static void csi_G(Terminal* term)   // Cursor Horizontal Absolute
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_x = SDL_min(term->cols, p1 - 1);
     term->cursor_x = SDL_max(0, term->cursor_x);
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x);
 }
 
-static void csi_d(Terminal* term) { // Vertical Line Position Absolute
+static void csi_d(Terminal* term)   // Vertical Line Position Absolute
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_min(term->rows - 1, p1 - 1);
     term->cursor_y = SDL_max(0, term->cursor_y);
 }
 
-static void csi_H(Terminal* term) { // Cursor Position
+static void csi_H(Terminal* term)   // Cursor Position
+{
     int p1 = term->csi_params[0];
     int p2 = term->csi_params[1];
-    if (p1 == 0) p1 = 1;
-    if (p2 == 0) p2 = 1;
+    if (p1 == 0) {
+        p1 = 1;
+    }
+    if (p2 == 0) {
+        p2 = 1;
+    }
 
     if (term->origin_mode) {
         term->cursor_y = (p1 - 1) + (term->scroll_top - 1);
@@ -814,7 +827,8 @@ static void csi_H(Terminal* term) { // Cursor Position
     }
 }
 
-static void csi_J(Terminal* term) { // Erase in Display
+static void csi_J(Terminal* term)   // Erase in Display
+{
     int p1 = term->csi_params[0];
     if (p1 == 2) {
         terminal_clear_visible_screen(term);
@@ -831,7 +845,8 @@ static void csi_J(Terminal* term) { // Erase in Display
     }
 }
 
-static void csi_K(Terminal* term) { // Erase in Line
+static void csi_K(Terminal* term)   // Erase in Line
+{
     int p1 = term->csi_params[0];
     if (p1 == 0) {
         terminal_clear_line(term, term->cursor_y, term->cursor_x);
@@ -842,19 +857,22 @@ static void csi_K(Terminal* term) { // Erase in Line
     }
 }
 
-static void csi_c(Terminal* term) { // Device Attributes
+static void csi_c(Terminal* term)   // Device Attributes
+{
     if (term->csi_params[0] == 0 && term->response_len == 0) {
         term->response_len = snprintf(term->response_buffer, RESPONSE_BUFFER_SIZE, "\x1b[?1;2c");
     }
 }
 
-static void csi_n(Terminal* term) { // Device Status Report
+static void csi_n(Terminal* term)   // Device Status Report
+{
     if (term->csi_params[0] == 6 && term->response_len == 0) {
         term->response_len = snprintf(term->response_buffer, RESPONSE_BUFFER_SIZE, "\x1b[%d;%dR", term->cursor_y + 1, term->cursor_x + 1);
     }
 }
 
-static void csi_m(Terminal* term) { // Select Graphic Rendition
+static void csi_m(Terminal* term)   // Select Graphic Rendition
+{
     if (term->csi_param_count == 1 && term->csi_params[0] == 0) {
         term->current_fg = term->default_fg;
         term->current_bg = term->default_bg;
@@ -864,22 +882,32 @@ static void csi_m(Terminal* term) { // Select Graphic Rendition
     }
 }
 
-static void csi_h(Terminal* term) { // Set Mode
+static void csi_h(Terminal* term)   // Set Mode
+{
     for (int i = 0; i < term->csi_param_count; ++i) {
-        if (term->csi_params[i] == 4) term->insert_mode = true;
+        if (term->csi_params[i] == 4) {
+            term->insert_mode = true;
+        }
     }
 }
 
-static void csi_l(Terminal* term) { // Reset Mode
+static void csi_l(Terminal* term)   // Reset Mode
+{
     for (int i = 0; i < term->csi_param_count; ++i) {
-        if (term->csi_params[i] == 4) term->insert_mode = false;
+        if (term->csi_params[i] == 4) {
+            term->insert_mode = false;
+        }
     }
 }
 
-static void csi_q(Terminal* term) { // Set cursor style (DECSCUSR)
+static void csi_q(Terminal* term)   // Set cursor style (DECSCUSR)
+{
     if (strcmp(term->csi_intermediate_chars, " ") == 0) {
         int style = (term->csi_param_count > 0) ? term->csi_params[0] : 1;
-        const struct { CursorStyle s; bool b; } map[] = {
+        const struct {
+            CursorStyle s;
+            bool b;
+        } map[] = {
             [0] = {CURSOR_STYLE_BLOCK, true}, [1] = {CURSOR_STYLE_BLOCK, true},
             [2] = {CURSOR_STYLE_BLOCK, false}, [3] = {CURSOR_STYLE_UNDERLINE, true},
             [4] = {CURSOR_STYLE_UNDERLINE, false}, [5] = {CURSOR_STYLE_BAR, true},
@@ -892,17 +920,20 @@ static void csi_q(Terminal* term) { // Set cursor style (DECSCUSR)
     }
 }
 
-static void csi_s(Terminal* term) { // Save Cursor Position
+static void csi_s(Terminal* term)   // Save Cursor Position
+{
     term->saved_cursor_x = term->cursor_x;
     term->saved_cursor_y = term->cursor_y;
 }
 
-static void csi_u(Terminal* term) { // Restore Cursor Position
+static void csi_u(Terminal* term)   // Restore Cursor Position
+{
     term->cursor_x = term->saved_cursor_x;
     term->cursor_y = term->saved_cursor_y;
 }
 
-static void csi_r(Terminal* term) { // Set Scrolling Region
+static void csi_r(Terminal* term)   // Set Scrolling Region
+{
     int top = (term->csi_param_count > 0 && term->csi_params[0] > 0) ? term->csi_params[0] : 1;
     int bottom = (term->csi_param_count > 1 && term->csi_params[1] > 0) ? term->csi_params[1] : term->rows;
 
@@ -914,46 +945,54 @@ static void csi_r(Terminal* term) { // Set Scrolling Region
     }
 }
 
-static void csi_at(Terminal* term) { // Insert Characters
+static void csi_at(Terminal* term)   // Insert Characters
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     terminal_insert_chars(term, p1);
 }
 
-static void csi_L(Terminal* term) { // Insert Lines
+static void csi_L(Terminal* term)   // Insert Lines
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     if (term->cursor_y >= (term->scroll_top - 1) && term->cursor_y < term->scroll_bottom) {
         terminal_scroll_region(term, term->cursor_y, term->scroll_bottom - 1, -p1);
     }
 }
 
-static void csi_M(Terminal* term) { // Delete Lines
+static void csi_M(Terminal* term)   // Delete Lines
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     if (term->cursor_y >= (term->scroll_top - 1) && term->cursor_y < term->scroll_bottom) {
         terminal_scroll_region(term, term->cursor_y, term->scroll_bottom - 1, p1);
     }
 }
 
-static void csi_P(Terminal* term) { // Delete Characters
+static void csi_P(Terminal* term)   // Delete Characters
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     terminal_delete_chars(term, p1);
 }
 
-static void csi_S(Terminal* term) { // Scroll Up
+static void csi_S(Terminal* term)   // Scroll Up
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, p1);
 }
 
-static void csi_T(Terminal* term) { // Scroll Down
+static void csi_T(Terminal* term)   // Scroll Down
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, -p1);
 }
 
-static void csi_X(Terminal* term) { // Erase Characters
+static void csi_X(Terminal* term)   // Erase Characters
+{
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     terminal_erase_chars(term, p1);
 }
 
-static void csi_t(Terminal* term) { // Window Manipulation
+static void csi_t(Terminal* term)   // Window Manipulation
+{
     if (term->csi_params[0] == 18 && term->response_len == 0) {
         term->response_len = snprintf(term->response_buffer, RESPONSE_BUFFER_SIZE, "\x1b[8;%d;%dt", term->rows, term->cols);
     }

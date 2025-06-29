@@ -57,9 +57,7 @@
 static void parse_args(int argc, char* argv[], Config* config);
 static bool init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font, const Config* config, int* char_w, int* char_h);
 static void run_child_process(const Config* config);
-static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config,
-                      int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk,
-                      bool force_full_render);
+static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config, int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk);
 static bool change_font_size(TTF_Font** font, Config* config, Terminal* term, OnScreenKeyboard* osk,
                              int* char_h, int* char_w, int master_fd, int delta);
 static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* needs_render, int pty_fd,
@@ -77,10 +75,7 @@ static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value,
 static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton button, bool osk_active);
 
 static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
-                         Terminal* term, OnScreenKeyboard* osk, int master_fd,
-                         TTF_Font** font, Config* config, int* char_w, int* char_h,
-                         ButtonRepeatState* repeat_state,
-                         bool force_full_render);
+                         Terminal* term, OnScreenKeyboard* osk, int master_fd, TTF_Font** font, Config* config, int* char_w, int* char_h, ButtonRepeatState* repeat_state);
 static void process_and_repeat_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int master_fd, TTF_Font** font, Config* config, int* char_w, int* char_h, ButtonRepeatState* repeat_state);
 static void stop_repeating_action(TerminalAction action, ButtonRepeatState* repeat_state);
 
@@ -421,7 +416,16 @@ static void handle_terminal_action(TerminalAction action, Terminal* term, OnScre
         }
         break;
     default: {
-        InternalCommand cmd = process_terminal_action(action, term, osk, needs_render, master_fd);
+        // For all other actions, decide whether to process them for the OSK or the terminal directly.
+        InternalCommand cmd = CMD_NONE;
+        if (osk->active) {
+            cmd = process_osk_action(action, term, osk, needs_render, master_fd);
+        } else {
+            // Actions like arrows, backspace, enter from a controller when the OSK is off
+            // are processed as direct terminal input.
+            process_direct_terminal_action(action, term, osk, needs_render, master_fd);
+        }
+
         if (cmd != CMD_NONE) {
             execute_internal_command(cmd, term, needs_render, master_fd, font, config, osk, char_w, char_h);
         }
@@ -474,8 +478,12 @@ static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton b
 {
     // When OSK is inactive, shoulder buttons are for scrolling.
     if (!osk_active) {
-        if (button == HELD_MODIFIER_SHIFT_BUTTON) return ACTION_SCROLL_UP;
-        if (button == HELD_MODIFIER_CTRL_BUTTON) return ACTION_SCROLL_DOWN;
+        if (button == HELD_MODIFIER_SHIFT_BUTTON) {
+            return ACTION_SCROLL_UP;
+        }
+        if (button == HELD_MODIFIER_CTRL_BUTTON) {
+            return ACTION_SCROLL_DOWN;
+        }
     }
     // Otherwise, or for any other button, use the standard map.
     // Note: When OSK is active, HELD_MODIFIER_* buttons are caught by
@@ -745,14 +753,14 @@ int main(int argc, char* argv[])
 
     SDL_StartTextInput();
 
-    main_loop(renderer, term, &font, &config, &char_w, &char_h, master_fd, &osk, config.force_full_render);
+    main_loop(renderer, term, &font, &config, &char_w, &char_h, master_fd, &osk);
 
     cleanup_resources(&config, term, &osk, renderer, win, font, pid, master_fd);
 
     return 0;
 }
 
-static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config, int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk, bool force_full_render)
+static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config, int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk)
 {
     bool running = true;
     bool needs_render = true;
@@ -806,12 +814,12 @@ static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, C
         SDL_Event event;
         if (SDL_WaitEventTimeout(&event, BUTTON_REPEAT_INTERVAL_MS)) {
             do {
-                handle_event(&event, &running, &needs_render, term, osk, master_fd, font, config, char_w, char_h, &repeat_state, force_full_render);
+                handle_event(&event, &running, &needs_render, term, osk, master_fd, font, config, char_w, char_h, &repeat_state);
             } while (SDL_PollEvent(&event));
         }
 
         if (needs_render) {
-            terminal_render(renderer, term, *font, *char_w, *char_h, osk, force_full_render, config->win_w, config->win_h);
+            terminal_render(renderer, term, *font, *char_w, *char_h, osk, config->force_full_render, config->win_w, config->win_h);
 
             SDL_RenderPresent(renderer);
             needs_render = false;
@@ -827,41 +835,77 @@ static void main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, C
     }
 }
 
-static int check_exit_event(SDL_Event* event, OnScreenKeyboard* osk){
-	switch (event->type) {
-		case SDL_CONTROLLERBUTTONDOWN: {
-			// Handle exit combo: BACK + START
-			if (event->cbutton.button == ACTION_BUTTON_TAB) { // BACK button
-				osk->held_back = true;
-			}
-			if (event->cbutton.button == ACTION_BUTTON_ENTER) { // START button
-				osk->held_start = true;
-			}
-			if (osk->held_back && osk->held_start) {
-				return 1; // Exit immediately, don't process other actions
-			}
-			break;
-		}
-		case SDL_CONTROLLERBUTTONUP: {
-			// Update state for exit combo
-			if (event->cbutton.button == ACTION_BUTTON_TAB) { // BACK button
-				osk->held_back = false;
-			}
-			if (event->cbutton.button == ACTION_BUTTON_ENTER) { // START button
-				osk->held_start = false;
-			}
-			break;
-		}
-	}
-	return 0;
+static int check_exit_event(SDL_Event* event, OnScreenKeyboard* osk)
+{
+    switch (event->type) {
+    case SDL_CONTROLLERBUTTONDOWN: {
+        // Handle exit combo: BACK + START
+        if (event->cbutton.button == ACTION_BUTTON_TAB) { // BACK button
+            osk->held_back = true;
+        }
+        if (event->cbutton.button == ACTION_BUTTON_ENTER) { // START button
+            osk->held_start = true;
+        }
+        if (osk->held_back && osk->held_start) {
+            return 1; // Exit immediately, don't process other actions
+        }
+        break;
+    }
+    case SDL_CONTROLLERBUTTONUP: {
+        // Update state for exit combo
+        if (event->cbutton.button == ACTION_BUTTON_TAB) { // BACK button
+            osk->held_back = false;
+        }
+        if (event->cbutton.button == ACTION_BUTTON_ENTER) { // START button
+            osk->held_start = false;
+        }
+        break;
+    }
+    }
+    return 0;
+}
+
+/**
+ * @brief Handles the logic for toggling the OSK state.
+ * This cycles through: OFF -> CHARS -> SPECIAL -> (back to CHARS or OFF).
+ */
+static void toggle_osk_state(OnScreenKeyboard* osk, bool* needs_render)
+{
+    if (!osk->active) {
+        // State: OFF. Action: Turn ON to CHARS mode.
+        osk->active = true;
+        osk->mode = OSK_MODE_CHARS;
+        osk->set_idx = 0;
+        osk->char_idx = 0;
+        osk_validate_row_index(osk);
+        osk->show_special_set_name = false;
+    } else if (osk->mode == OSK_MODE_CHARS) {
+        // State: ON, CHARS mode. Action: Switch to SPECIAL mode.
+        osk->mode = OSK_MODE_SPECIAL;
+        osk->set_idx = 0;
+        osk->char_idx = 0;
+        osk_validate_row_index(osk);
+        osk->show_special_set_name = true;
+    } else { // State: ON, SPECIAL mode.
+        bool any_one_shot_modifier_active = osk->mod_ctrl || osk->mod_alt || osk->mod_shift || osk->mod_gui;
+        if (any_one_shot_modifier_active) {
+            // If modifiers are on, go back to CHARS mode but keep modifiers.
+            osk->mode = OSK_MODE_CHARS;
+            osk_validate_row_index(osk);
+            osk->show_special_set_name = false;
+        } else {
+            // If no modifiers are on, turn the OSK OFF.
+            osk->active = false;
+            osk->show_special_set_name = false;
+        }
+    }
+    *needs_render = true;
 }
 
 static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
                          Terminal* term, OnScreenKeyboard* osk, int master_fd,
-                         TTF_Font** font, Config* config, int* char_w, int* char_h,
-                         ButtonRepeatState* repeat_state, bool force_full_render)
+                         TTF_Font** font, Config* config, int* char_w, int* char_h, ButtonRepeatState* repeat_state)
 {
-    (void)force_full_render;
     if (!event) {
         return;
     }
@@ -871,11 +915,23 @@ static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
         return;
     }
 
-    if (check_exit_event(event, osk)){
-		*running = false;
-		return;
-	}
+    if (check_exit_event(event, osk)) {
+        *running = false;
+        return;
+    }
 
+    // Handle OSK Toggle as a special case, as it changes the input mode
+    TerminalAction mapped_action = ACTION_NONE;
+    if (event->type == SDL_CONTROLLERBUTTONDOWN) {
+        mapped_action = map_cbutton_to_action(event->cbutton.button);
+    } else if (event->type == SDL_KEYDOWN) {
+        mapped_action = map_keyboard_to_action(&event->key);
+    }
+
+    if (mapped_action == ACTION_TOGGLE_OSK) {
+        toggle_osk_state(osk, needs_render);
+        return; // Consume the event
+    }
     if (config->read_only) {
         return;
     }
@@ -884,9 +940,31 @@ static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
     case SDL_TEXTINPUT:
         write(master_fd, event->text.text, strlen(event->text.text));
         break;
+    case SDL_MOUSEWHEEL:
+        if (event->wheel.y > 0) { // scroll up
+            if (!term->alt_screen_active && term->history_size > 0) {
+                int old_offset = term->view_offset;
+                term->view_offset = SDL_min(term->history_size, term->view_offset + MOUSE_WHEEL_SCROLL_AMOUNT);
+                if (term->view_offset != old_offset) {
+                    *needs_render = true;
+                    term->full_redraw_needed = true;
+                }
+            }
+        } else if (event->wheel.y < 0) { // scroll down
+            if (!term->alt_screen_active && term->history_size > 0) {
+                int old_offset = term->view_offset;
+                term->view_offset = SDL_max(0, term->view_offset - MOUSE_WHEEL_SCROLL_AMOUNT);
+                if (term->view_offset != old_offset) {
+                    *needs_render = true;
+                    term->full_redraw_needed = true;
+                }
+            }
+        }
+        break;
     case SDL_KEYDOWN: {
-        TerminalAction action = map_keyboard_to_action(&event->key);
         if (osk->active) {
+            // Keyboard is navigating the OSK
+            TerminalAction action = ACTION_NONE;
             switch (event->key.keysym.sym) {
             case SDLK_UP:
                 action = ACTION_UP;
@@ -900,18 +978,36 @@ static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
             case SDLK_RIGHT:
                 action = ACTION_RIGHT;
                 break;
-            default:
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+                action = ACTION_SELECT; // In OSK, enter is select
                 break;
+            case SDLK_BACKSPACE:
+                action = ACTION_BACK;
+                break;
+            case SDLK_TAB:
+                action = ACTION_TAB;
+                break;
+            case SDLK_ESCAPE:
+                action = ACTION_BACK;
+                break; // ESC also acts as back in OSK
             }
-        }
-
-        if (action != ACTION_NONE) {
-            InternalCommand cmd = process_terminal_action(action, term, osk, needs_render, master_fd);
-            if (cmd != CMD_NONE) {
-                execute_internal_command(cmd, term, needs_render, master_fd, font, config, osk, char_w, char_h);
+            if (action != ACTION_NONE) {
+                InternalCommand cmd = process_osk_action(action, term, osk, needs_render, master_fd);
+                if (cmd != CMD_NONE) {
+                    execute_internal_command(cmd, term, needs_render, master_fd, font, config, osk, char_w, char_h);
+                }
             }
         } else {
-            handle_key_down(&event->key, master_fd, term);
+            // Keyboard is for the terminal directly
+            TerminalAction action = map_keyboard_to_action(&event->key);
+            if (action != ACTION_NONE) {
+                // This is for non-character actions like PageUp/PageDown scrolling
+                handle_terminal_action(action, term, osk, needs_render, master_fd, font, config, char_w, char_h);
+            } else {
+                // This is for regular key presses that send sequences
+                handle_key_down(&event->key, master_fd, term);
+            }
         }
         break;
     }

@@ -2,6 +2,8 @@
 
 VaixTerm is a lightweight, high-performance terminal emulator built using SDL2, primarily designed for **handheld gaming devices** and embedded systems. It provides a full-featured command-line interface optimized for environments where traditional keyboard input is limited, leveraging game controller input and a highly customizable on-screen keyboard.
 
+![credit screenshot](docs/imgs/credit.png)
+
 ## Main Features
 
 VaixTerm combines the power of a standard terminal with features tailored for controller-based use:
@@ -18,6 +20,8 @@ VaixTerm combines the power of a standard terminal with features tailored for co
 *   **Lightweight SDL2 Core:** Built on SDL2 for efficient rendering and minimal resource consumption, making it suitable for embedded and resource-constrained environments.
 *   **Comprehensive Terminal Emulation:** Supports standard ANSI/VT100 escape codes, 256-color, True Color, and robust UTF-8 character rendering, including custom drawing for box-drawing and Braille characters.
 *   **File-Based Configuration:** Appearance and behavior are fully customizable via external `.theme` (color scheme), `.kb` (OSK layout), and `.keys` (key set) files, allowing for easy sharing and management of configurations.
+
+![fastfetch screenshot](docs/imgs/fetch.png)
 
 ## Getting Started
 

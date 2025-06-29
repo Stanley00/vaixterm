@@ -282,8 +282,9 @@ typedef struct {
 
 // --- Special Keys for OSK ---
 typedef enum {
-    SK_SEQUENCE,
-    SK_STRING,      // For sending a literal string
+    SK_STRING,      // For sending a literal string with no tokens
+    SK_SEQUENCE,    // A single key press with modifiers
+    SK_MACRO,       // A sequence of literal text and key presses, e.g., "echo foo{ENTER}"
     SK_MOD_CTRL,
     SK_MOD_ALT,
     SK_MOD_SHIFT,
