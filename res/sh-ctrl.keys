@@ -1,0 +1,28 @@
+# Common shell shortcuts for vaixterm OSK
+# Format: display-name:keycode-name:mod1,mod2
+
+# --- Process Control ---
+Ctrl-C:c:ctrl
+Ctrl-D:d:ctrl
+Ctrl-Z:z:ctrl
+Ctrl-L:l:ctrl
+
+# --- History Navigation ---
+Ctrl-R:r:ctrl
+Ctrl-P:p:ctrl
+Ctrl-N:n:ctrl
+
+# --- Line Editing (Emacs-style) ---
+Ctrl-A:a:ctrl
+Ctrl-E:e:ctrl
+Ctrl-U:u:ctrl
+Ctrl-K:k:ctrl
+Ctrl-W:w:ctrl
+Ctrl-Y:y:ctrl
+
+# --- Word Navigation & Editing ---
+Alt-B:b:alt
+Alt-F:f:alt
+Alt-D:d:alt
+Alt-BS:backspace:alt
+Alt-.:.:alt
