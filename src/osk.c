@@ -171,7 +171,6 @@ static bool is_key_toggled(const Terminal* term, const OnScreenKeyboard* osk, co
 static const char* get_special_key_display_name(const OnScreenKeyboard* osk, int set_idx, int char_idx);
 static bool is_special_key_toggled(const Terminal* term, const OnScreenKeyboard* osk, int set_idx, int char_idx);
 static int s_max_mod_indicator_width = -1;
-static const char* get_char_display_name(const OnScreenKeyboard* osk, int set_idx, int char_idx);
 
 /**
  * @brief Gets the current OSK modifier bitmask from both one-shot and held modifiers.
@@ -581,9 +580,24 @@ static int get_modifier_indicators_width(TTF_Font* font, int char_w)
  */
 static void render_modifier_indicators(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, int win_w, int osk_y, int char_w, int char_h)
 {
+    // Get the active mask from the current layer/set
+    int layer_active_mask = OSK_MOD_NONE;
+    if (osk->mode == OSK_MODE_CHARS) {
+        const SpecialKeySet* row = osk_get_effective_row_ptr(osk, osk->set_idx);
+        if (row) {
+            layer_active_mask = row->active_mod_mask;
+        }
+    } else { // OSK_MODE_SPECIAL
+        if (osk->set_idx >= 0 && osk->set_idx < osk->num_total_special_sets) {
+            const SpecialKeySet* set = &osk->all_special_sets[osk->set_idx];
+            layer_active_mask = set->active_mod_mask;
+        }
+    }
+
     // Check both internal OSK modifiers and held controller modifiers
     if (!osk->mod_ctrl && !osk->mod_alt && !osk->mod_shift && !osk->mod_gui &&
-            !osk->held_ctrl && !osk->held_shift && !osk->held_alt && !osk->held_gui) {
+            !osk->held_ctrl && !osk->held_shift && !osk->held_alt && !osk->held_gui &&
+            layer_active_mask == OSK_MOD_NONE) {
         return;
     }
 
@@ -600,12 +614,12 @@ static void render_modifier_indicators(SDL_Renderer* renderer, TTF_Font* font, O
         (held_mask != OSK_MOD_NONE) &&
         (osk->char_sets_by_modifier[held_mask] != NULL);
 
-    // Show virtual mods always. Show physical mods only if they aren't causing a layer switch.
+    // Show virtual mods, layer mods, and physical mods (if they aren't causing a layer switch).
     const ModIndicator indicators[] = {
-        {"G",   osk->mod_gui   || (osk->held_gui   && !layer_switch_active)},
-        {"S",   osk->mod_shift || (osk->held_shift && !layer_switch_active)},
-        {"A",   osk->mod_alt   || (osk->held_alt   && !layer_switch_active)},
-        {"^",   osk->mod_ctrl  || (osk->held_ctrl  && !layer_switch_active)},
+        {"G",   osk->mod_gui   || (osk->held_gui   && !layer_switch_active) || (layer_active_mask & OSK_MOD_GUI)},
+        {"S",   osk->mod_shift || (osk->held_shift && !layer_switch_active) || (layer_active_mask & OSK_MOD_SHIFT)},
+        {"A",   osk->mod_alt   || (osk->held_alt   && !layer_switch_active) || (layer_active_mask & OSK_MOD_ALT)},
+        {"^",   osk->mod_ctrl  || (osk->held_ctrl  && !layer_switch_active) || (layer_active_mask & OSK_MOD_CTRL)},
     };
     const char* indicator_names_fixed_order[] = {"G", "S", "A", "^"};
 
@@ -678,8 +692,9 @@ void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, c
  */
 static SpecialKeySet process_layout_line(const char* input)
 {
-    SpecialKeySet new_set = { .name = NULL, .keys = NULL, .length = 0, .is_dynamic = true, .file_path = NULL };
+    SpecialKeySet new_set = { .name = NULL, .keys = NULL, .length = 0, .is_dynamic = true, .file_path = NULL, .active_mod_mask = OSK_MOD_NONE };
     const char* p = input;
+    int capacity = 0;
 
     while (*p) {
         SpecialKey new_key = { .display_name = NULL, .type = SK_STRING, .sequence = NULL, .keycode = SDLK_UNKNOWN, .mod = KMOD_NONE, .command = CMD_NONE };
@@ -777,9 +792,17 @@ static SpecialKeySet process_layout_line(const char* input)
         }
 
         if (key_created) {
-            SpecialKey* temp = realloc(new_set.keys, sizeof(SpecialKey) * (size_t)(new_set.length + 1));
-            if (temp) {
-                new_set.keys = temp;
+            if (new_set.length >= capacity) {
+                capacity = (capacity == 0) ? 8 : capacity * 2;
+                SpecialKey* temp = realloc(new_set.keys, sizeof(SpecialKey) * (size_t)capacity);
+                if (temp) {
+                    new_set.keys = temp;
+                } else {
+                    fprintf(stderr, "Failed to realloc for new key.\n");
+                    key_created = false; // Prevent adding the key
+                }
+            }
+            if (key_created) {
                 new_set.keys[new_set.length++] = new_key;
             } else {
                 fprintf(stderr, "Failed to realloc for new key.\n");
@@ -792,22 +815,37 @@ static SpecialKeySet process_layout_line(const char* input)
 }
 
 /**
- * @brief Frees a single character layout (an array of char* rows).
- * @param layout The char** array to free.
+ * @brief Frees the dynamically allocated contents of a SpecialKeySet (the keys array and its strings).
+ * This function also sets the keys pointer to NULL and length to 0.
+ * @param set A pointer to the SpecialKeySet to clean.
+ */
+static void free_special_key_set_contents(SpecialKeySet* set)
+{
+    if (!set || !set->keys) {
+        return;
+    }
+    for (int i = 0; i < set->length; ++i) {
+        free(set->keys[i].display_name);
+        // Only free sequence if it was allocated (for SK_STRING, SK_MACRO, etc.)
+        if (set->keys[i].type == SK_STRING || set->keys[i].type == SK_MACRO || set->keys[i].type == SK_LOAD_FILE || set->keys[i].type == SK_UNLOAD_FILE) {
+            free(set->keys[i].sequence);
+        }
+    }
+    free(set->keys);
+    set->keys = NULL;
+    set->length = 0;
+}
+
+/**
+ * @brief Frees an array of SpecialKeySet rows.
+ * @param rows The SpecialKeySet* array to free.
  * @param num_rows The number of rows in the layout.
  */
 static void free_char_layout_rows(SpecialKeySet* rows, int num_rows)
 {
     if (rows) {
         for (int i = 0; i < num_rows; ++i) {
-            for (int j = 0; j < rows[i].length; ++j) {
-                free(rows[i].keys[j].display_name);
-                // Only free sequence if it was allocated (i.e., not NULL for SK_SEQUENCE)
-                if (rows[i].keys[j].type == SK_STRING || rows[i].keys[j].type == SK_LOAD_FILE || rows[i].keys[j].type == SK_UNLOAD_FILE) {
-                    free(rows[i].keys[j].sequence);
-                }
-            }
-            free(rows[i].keys);
+            free_special_key_set_contents(&rows[i]);
         }
         free(rows);
     }
@@ -818,7 +856,7 @@ static void free_char_layout_rows(SpecialKeySet* rows, int num_rows)
  * @param mod_name The string name (e.g., "normal", "shift", "ctrl+alt").
  * @return The corresponding OSK_MOD_ bitmask, or -1 if invalid.
  */
-static int get_modifier_mask_from_name(char* mod_name_non_const)
+static int get_modifier_mask_from_name_part(char* mod_name_non_const)
 {
     int mask = OSK_MOD_NONE;
     char* saveptr;
@@ -860,6 +898,42 @@ static int get_modifier_mask_from_name(char* mod_name_non_const)
 }
 
 /**
+ * @brief Parses a section header which can contain show and active modifiers.
+ * Format: `[show_mods]` or `[show_mods:active_mods]`.
+ * @param section_name The content of the section header (e.g., "ctrl+alt:alt").
+ * @param show_mask Pointer to store the mask for when to show the layer.
+ * @param active_mask Pointer to store the mask for what modifiers are active for the layer.
+ * @return True on success, false on failure.
+ */
+static bool parse_section_header_masks(char* section_name, int* show_mask, int* active_mask)
+{
+    *show_mask = OSK_MOD_NONE;
+    *active_mask = OSK_MOD_NONE;
+
+    char* active_part = strchr(section_name, ':');
+    char* show_part = section_name;
+
+    if (active_part != NULL) {
+        *active_part = '\0'; // Split the string
+        active_part++;
+    }
+
+    int s_mask = get_modifier_mask_from_name_part(show_part);
+    if (s_mask == -1) return false;
+    *show_mask = s_mask;
+
+    if (active_part != NULL && *active_part != '\0') {
+        int a_mask = get_modifier_mask_from_name_part(active_part);
+        if (a_mask == -1) return false;
+        *active_mask = a_mask;
+    } else {
+        // If no active part is specified, default to no active modifiers.
+        *active_mask = OSK_MOD_NONE;
+    }
+    return true;
+}
+
+/**
  * @brief Parses OSK layout content from a string.
  * @param content The string containing the layout definition.
  * @param temp_key_sets_by_modifier A temporary array to store parsed key sets.
@@ -876,6 +950,7 @@ static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_s
     }
 
     int current_mask = -1;
+    int current_active_mask = OSK_MOD_NONE;
     char* line_saveptr;
     char* line = strtok_r(content_copy, "\n", &line_saveptr);
 
@@ -907,8 +982,12 @@ static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_s
             strncpy(section_name, start + 1, content_len);
             section_name[content_len] = '\0';
 
-            current_mask = get_modifier_mask_from_name(section_name);
-            if (current_mask == -1) {
+            int show_mask, active_mask;
+            if (parse_section_header_masks(section_name, &show_mask, &active_mask)) {
+                current_mask = show_mask;
+                current_active_mask = active_mask;
+            } else {
+                current_mask = -1; // Mark as invalid to skip lines until next valid section
                 fprintf(stderr, "Warning: Invalid section header '%s' in OSK layout file. Skipping section.\n", start);
             }
         } else if (current_mask != -1) {
@@ -925,10 +1004,12 @@ static bool parse_layout_content(const char* content, SpecialKeySet** temp_key_s
             }
 
             if (strcmp(start, "{DEFAULT}") == 0) {
-                SpecialKeySet default_marker = { .name = NULL, .keys = NULL, .length = -1, .is_dynamic = false, .file_path = NULL };
+                SpecialKeySet default_marker = { .name = NULL, .keys = NULL, .length = -1, .is_dynamic = false, .file_path = NULL, .active_mod_mask = current_active_mask };
                 temp_key_sets_by_modifier[current_mask][temp_num_rows[current_mask]++] = default_marker;
             } else {
                 SpecialKeySet processed_row = process_layout_line(start);
+                // The active mask is determined by the section, not the line.
+                processed_row.active_mod_mask = current_active_mask;
                 temp_key_sets_by_modifier[current_mask][temp_num_rows[current_mask]++] = processed_row;
             }
         }
@@ -1382,7 +1463,7 @@ static bool add_to_available_list(OnScreenKeyboard* osk, const char* path)
     }
     osk->available_dynamic_key_sets = temp;
     osk->available_dynamic_key_sets[osk->num_available_dynamic_key_sets] = (SpecialKeySet) {
-        .name = set_name, .file_path = strdup(path), .keys = NULL, .length = 0, .is_dynamic = true
+        .name = set_name, .file_path = strdup(path), .keys = NULL, .length = 0, .is_dynamic = true, .active_mod_mask = OSK_MOD_NONE
     };
     osk->num_available_dynamic_key_sets++;
 
@@ -1402,18 +1483,7 @@ static void osk_rebuild_control_set_dynamic_keys(OnScreenKeyboard* osk)
     }
 
     // Free all previously allocated keys and their contents in the CONTROL set.
-    if (control_set->keys != NULL) {
-        for (int i = 0; i < control_set->length; ++i) {
-            free(control_set->keys[i].display_name);
-            // Only free sequence if it was allocated (i.e., not NULL for SK_SEQUENCE)
-            if (control_set->keys[i].type == SK_STRING || control_set->keys[i].type == SK_LOAD_FILE || control_set->keys[i].type == SK_UNLOAD_FILE) {
-                free(control_set->keys[i].sequence);
-            }
-        }
-        free(control_set->keys);
-        control_set->keys = NULL;
-        control_set->length = 0;
-    }
+    free_special_key_set_contents(control_set);
 
     // Allocate space for combined base keys + dynamic key set entries
     const size_t num_action_keys = sizeof(osk_special_set_action_keys) / sizeof(SpecialKey);
@@ -1503,6 +1573,7 @@ void osk_init_all_sets(OnScreenKeyboard* osk)
     control_set->length = 0;
     control_set->is_dynamic = true; // Mark as dynamic so its contents are freed correctly.
     control_set->file_path = NULL;
+    control_set->active_mod_mask = OSK_MOD_NONE;
 
     // The base keys are now combined from the two original arrays.
     // We will copy them into the dynamic `keys` array in the rebuild function.
@@ -1530,6 +1601,7 @@ void osk_add_custom_set(OnScreenKeyboard* osk, const char* path)
     new_set.length = 0;
     new_set.is_dynamic = true;
     new_set.file_path = strdup(path); // Store the path
+    new_set.active_mod_mask = OSK_MOD_NONE;
 
     const char* last_slash = strrchr(path, '/');
     const char* basename = last_slash ? last_slash + 1 : path;
@@ -1567,13 +1639,7 @@ void osk_add_custom_set(OnScreenKeyboard* osk, const char* path)
         new_set.keys = realloc(new_set.keys, sizeof(SpecialKey) * (size_t)(new_set.length + 1));
         if (!new_set.keys) {
             fprintf(stderr, "Error: Failed to reallocate memory for custom key set keys.\n");
-            for (int j = 0; j < new_set.length; ++j) {
-                free(new_set.keys[j].display_name);
-                if (new_set.keys[j].type == SK_STRING || new_set.keys[j].type == SK_LOAD_FILE || new_set.keys[j].type == SK_UNLOAD_FILE) {
-                    free(new_set.keys[j].sequence);
-                }
-            }
-            free(new_set.keys);
+            free_special_key_set_contents(&new_set);
             free(new_set.name);
             free(new_set.file_path);
             fclose(file);
@@ -1589,13 +1655,7 @@ void osk_add_custom_set(OnScreenKeyboard* osk, const char* path)
         osk->all_special_sets = realloc(osk->all_special_sets, sizeof(SpecialKeySet) * (size_t)(osk->num_total_special_sets + 1));
         if (!osk->all_special_sets) {
             fprintf(stderr, "Error: Failed to reallocate memory for all special sets.\n");
-            for (int j = 0; j < new_set.length; ++j) {
-                free(new_set.keys[j].display_name);
-                if (new_set.keys[j].type == SK_STRING || new_set.keys[j].type == SK_LOAD_FILE || new_set.keys[j].type == SK_UNLOAD_FILE) {
-                    free(new_set.keys[j].sequence);
-                }
-            }
-            free(new_set.keys);
+            free_special_key_set_contents(&new_set);
             free(new_set.name);
             free(new_set.file_path);
             return;
@@ -1636,13 +1696,7 @@ void osk_remove_custom_set(OnScreenKeyboard* osk, const char* name)
     if (found_idx != -1) {
         SpecialKeySet* set_to_remove = &osk->all_special_sets[found_idx];
 
-        for (int j = 0; j < set_to_remove->length; ++j) {
-            free(set_to_remove->keys[j].display_name);
-            if (set_to_remove->keys[j].type == SK_STRING || set_to_remove->keys[j].type == SK_LOAD_FILE || set_to_remove->keys[j].type == SK_UNLOAD_FILE) {
-                free(set_to_remove->keys[j].sequence);
-            }
-        }
-        free(set_to_remove->keys);
+        free_special_key_set_contents(set_to_remove);
         free(set_to_remove->name);
         free(set_to_remove->file_path); // Free the stored file path
 
@@ -1685,18 +1739,7 @@ void osk_free_all_sets(OnScreenKeyboard* osk)
     if (osk->all_special_sets && osk->num_total_special_sets > 0) {
         SpecialKeySet* control_set = &osk->all_special_sets[0]; // CONTROL is always first
         if (control_set->is_dynamic && control_set->keys) {
-            // The rebuild function now allocates all keys, so we free them all.
-            for (int i = 0; i < control_set->length; ++i) {
-                // The base keys are now deep-copied, so their strings must be freed.
-                free(control_set->keys[i].display_name);
-                // Only free sequence if it was allocated (i.e., not NULL for SK_SEQUENCE)
-                if (control_set->keys[i].type == SK_STRING || control_set->keys[i].type == SK_LOAD_FILE || control_set->keys[i].type == SK_UNLOAD_FILE) {
-                    free(control_set->keys[i].sequence);
-                }
-            }
-            free(control_set->keys);
-            control_set->keys = NULL;
-            control_set->length = 0;
+            free_special_key_set_contents(control_set);
         }
     }
 
@@ -1706,13 +1749,7 @@ void osk_free_all_sets(OnScreenKeyboard* osk)
         SpecialKeySet* current_set = &osk->all_special_sets[i];
         // All sets added via osk_add_custom_set are marked as dynamic.
         if (current_set->is_dynamic) {
-            for (int j = 0; j < current_set->length; ++j) {
-                free(current_set->keys[j].display_name);
-                if (current_set->keys[j].type == SK_STRING || current_set->keys[j].type == SK_LOAD_FILE || current_set->keys[j].type == SK_UNLOAD_FILE) {
-                    free(current_set->keys[j].sequence);
-                }
-            }
-            free(current_set->keys);
+            free_special_key_set_contents(current_set);
             free(current_set->name);
             free(current_set->file_path);
         }

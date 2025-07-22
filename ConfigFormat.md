@@ -20,6 +20,11 @@ A `.kb` file consists of sections, each defining a layer of key rows for a speci
 *   **Modifier Sections:** Each section begins with a line enclosed in square brackets `[]`, specifying the modifier combination for that layer.
     *   Examples: `[default]`, `[SHIFT]`, `[CTRL]`, `[ALT]`, `[GUI]`, `[SHIFT+CTRL]`, `[CTRL+ALT+GUI]`.
     *   The `[default]` or `[normal]` section is the base layer when no modifiers are active. It is **required**.
+    *   **Layer-Active Modifiers:** The section header can also specify a set of modifiers to be *active* for that layer, using the format `[show_modifiers:active_modifiers]`.
+        *   `show_modifiers`: The combination of held controller buttons that will make this layer appear.
+        *   `active_modifiers`: The modifiers that will be sent with every key press from this layer, in addition to any other one-shot or held modifiers. The OSK will display indicators for these active modifiers.
+        *   Example: `[CTRL:CTRL+ALT]` - This layer will appear when `Ctrl` is held. Any key pressed on this layer will be sent as if both `Ctrl` and `Alt` were held.
+        *   If the `:active_modifiers` part is omitted (e.g., `[SHIFT]`), no layer-specific modifiers are activated by default. The layer is simply shown. To make the layer's own modifier active, you must specify it explicitly (e.g., `[SHIFT:SHIFT]`).
     *   Modifier names are case-insensitive and can be combined with `+`. The order of modifiers in the name does not matter (e.g., `[SHIFT+CTRL]` is the same as `[CTRL+SHIFT]`).
 *   **Key Definition Rows:** Following a modifier section, each line represents a row of keys. Keys within a row are defined by a sequence of characters or special tokens.
 

@@ -68,8 +68,9 @@ static inline uint32_t hash_key(uint64_t key)
 static GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 {
     uint32_t index = hash_key(key);
+    // Quadratic probing
     for (int i = 0; i < GLYPH_CACHE_SIZE; ++i) {
-        uint32_t probe_index = (index + i) % GLYPH_CACHE_SIZE;
+        uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (GLYPH_CACHE_SIZE - 1);
         if (cache->entries[probe_index].key == 0) {
             return NULL;
         }
@@ -83,8 +84,9 @@ static GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 static bool glyph_cache_put(GlyphCache* cache, uint64_t key, SDL_Texture* texture, int w, int h)
 {
     uint32_t index = hash_key(key);
+    // Quadratic probing
     for (int i = 0; i < GLYPH_CACHE_SIZE; ++i) {
-        uint32_t probe_index = (index + i) % GLYPH_CACHE_SIZE;
+        uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (GLYPH_CACHE_SIZE - 1);
         if (cache->entries[probe_index].key == 0) {
             cache->entries[probe_index].key = key;
             cache->entries[probe_index].texture = texture;
@@ -135,8 +137,9 @@ static inline uint64_t make_osk_key(const char* text, OSKKeyState state)
 static OSKKeyCacheEntry* osk_key_cache_get(OSKKeyCache* cache, uint64_t key)
 {
     uint32_t index = hash_key(key);
+    // Quadratic probing
     for (int i = 0; i < OSK_KEY_CACHE_SIZE; ++i) {
-        uint32_t probe_index = (index + i) % OSK_KEY_CACHE_SIZE;
+        uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (OSK_KEY_CACHE_SIZE - 1);
         if (cache->entries[probe_index].key == 0) {
             return NULL;
         }
@@ -150,8 +153,9 @@ static OSKKeyCacheEntry* osk_key_cache_get(OSKKeyCache* cache, uint64_t key)
 static bool osk_key_cache_put(OSKKeyCache* cache, uint64_t key, SDL_Texture* texture, int w, int h)
 {
     uint32_t index = hash_key(key);
+    // Quadratic probing
     for (int i = 0; i < OSK_KEY_CACHE_SIZE; ++i) {
-        uint32_t probe_index = (index + i) % OSK_KEY_CACHE_SIZE;
+        uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (OSK_KEY_CACHE_SIZE - 1);
         if (cache->entries[probe_index].key == 0) {
             cache->entries[probe_index].key = key;
             cache->entries[probe_index].texture = texture;

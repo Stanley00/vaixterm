@@ -74,6 +74,7 @@ static bool handle_held_modifier_button(SDL_GameControllerButton button, bool pr
 static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value, OnScreenKeyboard* osk, bool* needs_render);
 static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton button, bool osk_active);
 
+static void terminal_scroll_view(Terminal* term, int amount, bool* needs_render);
 static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
                          Terminal* term, OnScreenKeyboard* osk, int master_fd, TTF_Font** font, Config* config, int* char_w, int* char_h, ButtonRepeatState* repeat_state);
 static void process_and_repeat_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int master_fd, TTF_Font** font, Config* config, int* char_w, int* char_h, ButtonRepeatState* repeat_state);
@@ -205,6 +206,29 @@ static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value,
 }
 
 /**
+ * @brief Scrolls the terminal's viewport by a given amount.
+ * @param term The terminal state.
+ * @param amount The number of lines to scroll (positive for up/into history, negative for down/towards present).
+ * @param needs_render Pointer to a boolean, set to true if rendering is needed.
+ */
+static void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
+{
+    if (term->alt_screen_active || term->history_size == 0) {
+        return;
+    }
+
+    int old_offset = term->view_offset;
+    int new_offset = term->view_offset + amount;
+
+    term->view_offset = SDL_max(0, SDL_min(term->history_size, new_offset));
+
+    if (term->view_offset != old_offset) {
+        *needs_render = true;
+        term->full_redraw_needed = true;
+    }
+}
+
+/**
  * @brief Parses command-line arguments and updates the Config struct.
  * Arguments override any values loaded from a config file.
  */
@@ -328,7 +352,7 @@ static bool init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font,
         goto font_close;
     }
 
-    *renderer = SDL_CreateRenderer(*win, -1, SDL_RENDERER_ACCELERATED);
+    *renderer = SDL_CreateRenderer(*win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!*renderer) {
         fprintf(stderr, "SDL_CreateRenderer Error: %s\n", SDL_GetError());
         goto window_destroy;
@@ -395,25 +419,12 @@ static void handle_terminal_action(TerminalAction action, Terminal* term, OnScre
 {
     switch (action) {
     case ACTION_SCROLL_UP:
-        if (!term->alt_screen_active && term->history_size > 0) {
-            int old_offset = term->view_offset;
-            int scroll_amount = SDL_max(1, term->rows / 2);
-            term->view_offset = SDL_min(term->history_size, term->view_offset + scroll_amount);
-            if (term->view_offset != old_offset) {
-                *needs_render = true;
-                term->full_redraw_needed = true;
-            }
-        }
+        // Scroll up by half a page
+        terminal_scroll_view(term, SDL_max(1, term->rows / 2), needs_render);
         break;
     case ACTION_SCROLL_DOWN:
-        if (!term->alt_screen_active && term->history_size > 0) {
-            int old_offset = term->view_offset;
-            term->view_offset = SDL_max(0, term->view_offset - MOUSE_WHEEL_SCROLL_AMOUNT);
-            if (term->view_offset != old_offset) {
-                *needs_render = true;
-                term->full_redraw_needed = true;
-            }
-        }
+        // Scroll down by the standard mouse wheel amount
+        terminal_scroll_view(term, -MOUSE_WHEEL_SCROLL_AMOUNT, needs_render);
         break;
     default: {
         // For all other actions, decide whether to process them for the OSK or the terminal directly.
@@ -941,25 +952,9 @@ static void handle_event(SDL_Event* event, bool* running, bool* needs_render,
         write(master_fd, event->text.text, strlen(event->text.text));
         break;
     case SDL_MOUSEWHEEL:
-        if (event->wheel.y > 0) { // scroll up
-            if (!term->alt_screen_active && term->history_size > 0) {
-                int old_offset = term->view_offset;
-                term->view_offset = SDL_min(term->history_size, term->view_offset + MOUSE_WHEEL_SCROLL_AMOUNT);
-                if (term->view_offset != old_offset) {
-                    *needs_render = true;
-                    term->full_redraw_needed = true;
-                }
-            }
-        } else if (event->wheel.y < 0) { // scroll down
-            if (!term->alt_screen_active && term->history_size > 0) {
-                int old_offset = term->view_offset;
-                term->view_offset = SDL_max(0, term->view_offset - MOUSE_WHEEL_SCROLL_AMOUNT);
-                if (term->view_offset != old_offset) {
-                    *needs_render = true;
-                    term->full_redraw_needed = true;
-                }
-            }
-        }
+        // Positive y is scroll up (into history), negative is scroll down.
+        // The scroll amount is inverted to match the sign convention of our helper.
+        terminal_scroll_view(term, event->wheel.y * MOUSE_WHEEL_SCROLL_AMOUNT, needs_render);
         break;
     case SDL_KEYDOWN: {
         if (osk->active) {

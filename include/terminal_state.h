@@ -227,6 +227,7 @@ typedef struct {
     int length;          // Number of keys in this set
     bool is_dynamic;     // True if this set was loaded from a file and needs to be freed
     char* file_path;     // Path to the .keys file if loaded dynamically
+    int active_mod_mask; // Modifiers that are active for this layer
 } SpecialKeySet;
 
 // Modifier bitmasks for OSK character layers

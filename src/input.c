@@ -21,11 +21,12 @@
 // --- Forward Declarations for static functions ---
 static InternalCommand process_osk_chars_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
 static InternalCommand process_osk_special_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd);
-static void execute_macro(int pty_fd, const char* macro_string, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated);
+static void execute_macro(int pty_fd, const char* macro_string, const SpecialKeySet* row, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated);
 static SDL_Keymod get_combined_modifiers(const OnScreenKeyboard* osk);
 static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk);
 static void clear_one_shot_modifiers(OnScreenKeyboard* osk, bool* needs_render_ptr);
-static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal* term, OnScreenKeyboard* osk, int pty_fd, bool* ui_updated);
+static InternalCommand osk_handle_key_selection(const SpecialKey* key, const SpecialKeySet* row, Terminal* term, OnScreenKeyboard* osk, int pty_fd, bool* ui_updated);
+static SDL_Keymod osk_mask_to_sdl_mod(int osk_mask);
 
 
 // --- UTF-8 String Helpers ---
@@ -238,49 +239,47 @@ void send_key_event(int pty_fd, SDL_Keycode sym, SDL_Keymod mod, const Terminal*
         }
     }
 
-    // --- Priority 3: Application-Mode Keys (Cursor, Home/End) ---
-    if (term && term->application_cursor_keys_mode) {
-        const struct {
-            SDL_Keycode k;
-            const char* s;
-        } map[] = {
-            {SDLK_UP,    KEY_SEQ_UP_APP},    {SDLK_DOWN,  KEY_SEQ_DOWN_APP},
-            {SDLK_RIGHT, KEY_SEQ_RIGHT_APP}, {SDLK_LEFT,  KEY_SEQ_LEFT_APP},
-            {SDLK_HOME,  KEY_SEQ_HOME_APP},  {SDLK_END,   KEY_SEQ_END_APP}
-        };
-        for (size_t i = 0; i < sizeof(map)/sizeof(map[0]); ++i) {
-            if (map[i].k == sym) {
-                write(pty_fd, map[i].s, strlen(map[i].s));
-                return;
-            }
-        }
-    }
-
-    // --- Priority 4: Standard Special Keys ---
+    // --- Priority 3 & 4: Standard & Application-Mode Special Keys ---
+    // This map consolidates standard keys and their application-mode variants.
     const struct {
         SDL_Keycode k;
-        const char* s;
+        const char* s_normal;
+        const char* s_app; // NULL if no special application mode sequence
     } map[] = {
-        {SDLK_RETURN,      "\r"},       {SDLK_KP_ENTER,    "\r"},
-        {SDLK_BACKSPACE,   "\x7f"},     {SDLK_TAB,         "\t"},
-        {SDLK_ESCAPE,      "\x1b"},     {SDLK_SPACE,       " "},
-        {SDLK_PAGEUP,      KEY_SEQ_PGUP_NORMAL}, {SDLK_PAGEDOWN, KEY_SEQ_PGDN_NORMAL},
-        {SDLK_UP,          KEY_SEQ_UP_NORMAL},   {SDLK_DOWN,   KEY_SEQ_DOWN_NORMAL},
-        {SDLK_RIGHT,       KEY_SEQ_RIGHT_NORMAL},{SDLK_LEFT,   KEY_SEQ_LEFT_NORMAL},
-        {SDLK_HOME,        KEY_SEQ_HOME_NORMAL}, {SDLK_END,    KEY_SEQ_END_NORMAL},
-        {SDLK_INSERT,      "\x1b[2~"},  {SDLK_DELETE,      "\x1b[3~"},
-        {SDLK_F1,          "\x1bOP"},   {SDLK_F2,          "\x1bOQ"},
-        {SDLK_F3,          "\x1bOR"},   {SDLK_F4,          "\x1bOS"},
-        {SDLK_F5,          "\x1b[15~"}, {SDLK_F6,          "\x1b[17~"},
-        {SDLK_F7,          "\x1b[18~"}, {SDLK_F8,          "\x1b[19~"},
-        {SDLK_F9,          "\x1b[20~"}, {SDLK_F10,         "\x1b[21~"},
-        {SDLK_F11,         "\x1b[23~"}, {SDLK_F12,         "\x1b[24~"},
-        {SDLK_PRINTSCREEN, "\x1b[29~"}, {SDLK_SCROLLLOCK,  "\x1b[31~"},
-        {SDLK_PAUSE,       "\x1b[32~"},
+        // Keys with application-mode variants
+        {SDLK_UP,          KEY_SEQ_UP_NORMAL,    KEY_SEQ_UP_APP},
+        {SDLK_DOWN,        KEY_SEQ_DOWN_NORMAL,  KEY_SEQ_DOWN_APP},
+        {SDLK_RIGHT,       KEY_SEQ_RIGHT_NORMAL, KEY_SEQ_RIGHT_APP},
+        {SDLK_LEFT,        KEY_SEQ_LEFT_NORMAL,  KEY_SEQ_LEFT_APP},
+        {SDLK_HOME,        KEY_SEQ_HOME_NORMAL,  KEY_SEQ_HOME_APP},
+        {SDLK_END,         KEY_SEQ_END_NORMAL,   KEY_SEQ_END_APP},
+        // Keys without application-mode variants
+        {SDLK_RETURN,      "\r",                 NULL},
+        {SDLK_KP_ENTER,    "\r",                 NULL},
+        {SDLK_BACKSPACE,   "\x7f",               NULL},
+        {SDLK_TAB,         "\t",                 NULL},
+        {SDLK_ESCAPE,      "\x1b",               NULL},
+        {SDLK_SPACE,       " ",                  NULL},
+        {SDLK_PAGEUP,      KEY_SEQ_PGUP_NORMAL,  NULL},
+        {SDLK_PAGEDOWN,    KEY_SEQ_PGDN_NORMAL,  NULL},
+        {SDLK_INSERT,      "\x1b[2~",            NULL},
+        {SDLK_DELETE,      "\x1b[3~",            NULL},
+        {SDLK_F1,          "\x1bOP",             NULL}, {SDLK_F2, "\x1bOQ", NULL},
+        {SDLK_F3,          "\x1bOR",             NULL}, {SDLK_F4, "\x1bOS", NULL},
+        {SDLK_F5,          "\x1b[15~",           NULL}, {SDLK_F6, "\x1b[17~", NULL},
+        {SDLK_F7,          "\x1b[18~",           NULL}, {SDLK_F8, "\x1b[19~", NULL},
+        {SDLK_F9,          "\x1b[20~",           NULL}, {SDLK_F10, "\x1b[21~", NULL},
+        {SDLK_F11,         "\x1b[23~",           NULL}, {SDLK_F12, "\x1b[24~", NULL},
+        {SDLK_PRINTSCREEN, "\x1b[29~",           NULL},
+        {SDLK_SCROLLLOCK,  "\x1b[31~",           NULL},
+        {SDLK_PAUSE,       "\x1b[32~",           NULL},
     };
     for (size_t i = 0; i < sizeof(map)/sizeof(map[0]); ++i) {
         if (map[i].k == sym) {
-            write(pty_fd, map[i].s, strlen(map[i].s));
+            const char* seq_to_send = (term && term->application_cursor_keys_mode && map[i].s_app)
+                                      ? map[i].s_app
+                                      : map[i].s_normal;
+            write(pty_fd, seq_to_send, strlen(seq_to_send));
             return;
         }
     }
@@ -411,7 +410,7 @@ static InternalCommand process_osk_chars_action(TerminalAction action, Terminal*
         const SpecialKey* key = osk_get_effective_char_ptr(osk, osk->set_idx, osk->char_idx);
         if (key) {
             bool ui_updated = false;
-            InternalCommand cmd = osk_handle_key_selection(key, term, osk, pty_fd, &ui_updated);
+            InternalCommand cmd = osk_handle_key_selection(key, row, term, osk, pty_fd, &ui_updated);
             if (ui_updated) {
                 osk_validate_row_index(osk); // Validate after potential modifier/layout change
                 *needs_render = true;
@@ -420,22 +419,6 @@ static InternalCommand process_osk_chars_action(TerminalAction action, Terminal*
         }
         break;
     }
-    case ACTION_BACK:
-        send_key_event(pty_fd, SDLK_BACKSPACE, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_SPACE:
-        send_text_input_event(pty_fd, " ");
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_TAB:
-        send_key_event(pty_fd, SDLK_TAB, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_ENTER:
-        send_key_event(pty_fd, SDLK_RETURN, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
     default:
         break;
     }
@@ -495,7 +478,7 @@ static InternalCommand process_osk_special_action(TerminalAction action, Termina
 
             // Handle key selection using the common helper
             bool ui_updated = false;
-            InternalCommand cmd = osk_handle_key_selection(key, term, osk, pty_fd, &ui_updated);
+            InternalCommand cmd = osk_handle_key_selection(key, current_set, term, osk, pty_fd, &ui_updated);
             if (ui_updated) {
                 osk_validate_row_index(osk); // Validate after potential modifier/layout change
                 *needs_render = true;
@@ -506,22 +489,6 @@ static InternalCommand process_osk_special_action(TerminalAction action, Termina
         }
         break;
     }
-    case ACTION_BACK:
-        send_key_event(pty_fd, SDLK_BACKSPACE, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_SPACE:
-        send_text_input_event(pty_fd, " ");
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_TAB:
-        send_key_event(pty_fd, SDLK_TAB, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
-    case ACTION_ENTER:
-        send_key_event(pty_fd, SDLK_RETURN, KMOD_NONE, term);
-        // Modifiers are now persistent, do not clear here
-        break;
     default:
         break;
     }
@@ -631,6 +598,29 @@ static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
 }
 
 /**
+ * @brief Converts an OSK_MOD_ bitmask to an SDL_Keymod bitmask.
+ * @param osk_mask The OSK modifier mask.
+ * @return The corresponding SDL_Keymod mask.
+ */
+static SDL_Keymod osk_mask_to_sdl_mod(int osk_mask)
+{
+    SDL_Keymod mod = KMOD_NONE;
+    if (osk_mask & OSK_MOD_SHIFT) {
+        mod |= KMOD_SHIFT;
+    }
+    if (osk_mask & OSK_MOD_CTRL) {
+        mod |= KMOD_CTRL;
+    }
+    if (osk_mask & OSK_MOD_ALT) {
+        mod |= KMOD_ALT;
+    }
+    if (osk_mask & OSK_MOD_GUI) {
+        mod |= KMOD_GUI;
+    }
+    return mod;
+}
+
+/**
  * @brief Executes a macro string, which can contain literal text and special key tokens.
  * @param pty_fd The PTY file descriptor.
  * @param macro_string The string to parse and execute.
@@ -638,7 +628,7 @@ static SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
  * @param osk The OnScreenKeyboard state.
  * @param ui_updated Pointer to a boolean, set to true if the OSK UI needs a redraw.
  */
-static void execute_macro(int pty_fd, const char* macro_string, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated)
+static void execute_macro(int pty_fd, const char* macro_string, const SpecialKeySet* row, const Terminal* term, OnScreenKeyboard* osk, bool* ui_updated)
 {
     const char* p = macro_string;
     const char* segment_start = p;
@@ -677,7 +667,14 @@ static void execute_macro(int pty_fd, const char* macro_string, const Terminal* 
 
                 // Handle the token's action
                 if (token->type == SK_SEQUENCE) {
-                    SDL_Keymod mods = get_effective_send_modifiers(osk);
+                    SDL_Keymod active_layer_mods = KMOD_NONE;
+                    if (row) {
+                        active_layer_mods = osk_mask_to_sdl_mod(row->active_mod_mask);
+                    }
+                    SDL_Keymod user_mods = get_effective_send_modifiers(osk);
+
+                    // Tokens from macros don't have their own `key->mod`.
+                    SDL_Keymod mods = active_layer_mods | user_mods;
                     send_key_event(pty_fd, token->keycode, mods, term);
                     consumed_one_shot = true;
                 } else if (token->type >= SK_MOD_CTRL && token->type <= SK_MOD_GUI) {
@@ -719,7 +716,7 @@ static void execute_macro(int pty_fd, const char* macro_string, const Terminal* 
  * @param ui_updated Pointer to a boolean, set to true if the OSK UI needs a redraw.
  * @return InternalCommand if an internal command is triggered, CMD_NONE otherwise.
  */
-static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal* term, OnScreenKeyboard* osk, int pty_fd, bool* ui_updated)
+static InternalCommand osk_handle_key_selection(const SpecialKey* key, const SpecialKeySet* row, Terminal* term, OnScreenKeyboard* osk, int pty_fd, bool* ui_updated)
 {
     (void)term; // Not used currently, but kept for API consistency
     InternalCommand cmd = CMD_NONE;
@@ -733,7 +730,7 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
         break;
     case SK_MACRO: // A string that may contain tokens
         if (key->sequence) {
-            execute_macro(pty_fd, key->sequence, term, osk, ui_updated);
+            execute_macro(pty_fd, key->sequence, row, term, osk, ui_updated);
         }
         // Macro execution handles its own one-shot clearing.
         break;
@@ -750,7 +747,16 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
         }
         break;
     case SK_SEQUENCE: {
-        SDL_Keymod mods = get_effective_send_modifiers(osk) | key->mod;
+        // Combine modifiers from three sources:
+        // 1. The layer's active modifiers (e.g., from `[Ctrl:Ctrl+Alt]`).
+        SDL_Keymod active_layer_mods = KMOD_NONE;
+        if (row) {
+            active_layer_mods = osk_mask_to_sdl_mod(row->active_mod_mask);
+        }
+        // 2. User-activated modifiers (one-shot or held controller buttons).
+        // 3. The key's own modifiers (e.g., from a `.keys` file).
+        SDL_Keymod mods = active_layer_mods | get_effective_send_modifiers(osk) | key->mod;
+
         send_key_event(pty_fd, key->keycode, mods, term);
         break;
     }
@@ -798,6 +804,26 @@ static InternalCommand osk_handle_key_selection(const SpecialKey* key, Terminal*
  */
 InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int pty_fd)
 {
+    // Handle common actions that don't depend on OSK mode first.
+    // These actions do not consume one-shot modifiers.
+    switch (action) {
+    case ACTION_BACK:
+        send_key_event(pty_fd, SDLK_BACKSPACE, KMOD_NONE, term);
+        return CMD_NONE;
+    case ACTION_SPACE:
+        send_text_input_event(pty_fd, " ");
+        return CMD_NONE;
+    case ACTION_TAB:
+        send_key_event(pty_fd, SDLK_TAB, KMOD_NONE, term);
+        return CMD_NONE;
+    case ACTION_ENTER:
+        send_key_event(pty_fd, SDLK_RETURN, KMOD_NONE, term);
+        return CMD_NONE;
+    default:
+        // Action is mode-specific, delegate to handlers.
+        break;
+    }
+
     // Delegate to the appropriate handler based on the current OSK mode.
     if (osk->mode == OSK_MODE_SPECIAL) {
         return process_osk_special_action(action, term, osk, needs_render, pty_fd);
