@@ -1,0 +1,32 @@
+# VaixTerm Gamepad Configuration
+
+# Basic navigation
+up = Up
+down = Down
+left = Left
+right = Right
+
+# Action buttons
+start = Return
+select = Escape
+a = space
+b = BackSpace
+x = ctrl+c
+y = ctrl+v
+
+# Shoulder buttons
+l1 = Page_Up
+r1 = Page_Down
+l2 = Home
+r2 = End
+
+# Analog stick controls (mouse emulation)
+# leftx = axis(0)
+# lefty = axis(1)
+# rightx = axis(2)
+# righty = axis(3)
+
+# Hotkeys
+start + select = ctrl+c  # Force quit
+l1 + r1 = F11           # Toggle fullscreen
+l2 + r2 = ctrl+l        # Clear screen

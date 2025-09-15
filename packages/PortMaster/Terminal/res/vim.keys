@@ -1,0 +1,77 @@
+# Common Vim shortcuts for vaixterm OSK
+# This file contains a mix of normal mode commands, command mode commands,
+# and general control keys.
+#
+# Format for keycode-based actions (SK_SEQUENCE):
+#   display-name:keycode-name:mod1,mod2
+#
+# Format for string-based actions (SK_STRING):
+#   display-name:"string-literal":
+
+# --- Normal Mode Commands ---
+# Navigation
+ESC:ESC
+i:i
+h:h:
+j:j:
+k:k:
+l:l:
+w:w:
+b:b:
+0:0:
+$:$:shift
+G:g:shift
+gg:"gg":
+Ctrl-D:d:ctrl
+Ctrl-U:u:ctrl
+Ctrl-F:f:ctrl
+Ctrl-B:b:ctrl
+
+# Editing/Actions
+a:a:
+x:x:
+dd:"dd":
+yy:"yy":
+p:p:
+u:u:
+o:o:
+dw:"dw":
+cw:"cw":
+ciw:"ciw":
+diw:"diw":
+.:.:
+r:r:
+j:j:
+~:~:
+>>:">>":
+<<:"<<":
+
+# Visual Mode
+v:v:
+Ctrl-V:v:ctrl
+
+# Search
+/:/:
+n:n:
+
+# --- Command Mode Entry ---
+# Press this to enter command mode (type ':')
+:semicolon:shift
+
+# --- Command Mode Commands (includes Enter to execute) ---
+\:q:"\:q":
+\:w:"\:w":
+\:wq:"\:wq":
+\:x:"\:x":
+\:q!:"\:q!":
+\:w!:"\:w!":
+\:e:"\:e":
+\:help:"\:help":
+:%s:"%s/":
+ZZ:"ZZ":
+ZQ:"ZQ":
+
+# --- Other Useful Keys / Control Sequences ---
+Ctrl-R:r:ctrl
+Ctrl-C:c:ctrl
+Super-S:s:gui

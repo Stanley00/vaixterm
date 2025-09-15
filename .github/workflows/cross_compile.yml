@@ -1,8 +1,10 @@
-name: Cross-compile for RG35XXH
+name: Build and Package VaixTerm
 
 on:
   push:
     branches: ["main"]
+    tags:
+      - 'v*' # Push events matching v1.0, v20.15.10, etc.
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -12,7 +14,8 @@ env:
   SDK_URL: https://github.com/rg35xx-cfw/rg35xx-cfw.github.io/releases/download/rg35xx_plus_h_sdk_20240207/arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
   SDK_DIR: ${{ github.workspace }}/rg35xx-toolchain
   BUILDROOT_HOST_DIR: ${{ github.workspace }}/rg35xx-toolchain/usr
-  ARTIFACT_NAME: vaixterm-rg35xxh
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
+  ARTIFACT_PREFIX: vaixterm-rg35xxh-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
 
 jobs:
   build:
@@ -74,35 +77,68 @@ jobs:
         cp vaixterm release/
         cp -r res/ release/
         
-        # Create a tar.gz of the release
-        tar -czvf ${ARTIFACT_NAME}.tar.gz -C release .
+        # Create a tar.gz of the release directly in the workspace
+        tar -czvf ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}.tar.gz -C release .
     
-    - name: Create PortMaster package
-      if: startsWith(github.ref, 'refs/tags/')
+    - name: Create Packages
+      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
       run: |
-        # Create PortMaster directory structure
-        mkdir -p portmaster/vaixterm
+        # Create a clean working directory
+        mkdir -p packages
+        
+        # --- PortMaster Package ---
+        echo "Creating PortMaster package..."
+        mkdir -p packages/portmaster/vaixterm
         
         # Copy the binary and resources
-        cp vaixterm portmaster/vaixterm/
-        cp -r res/ portmaster/vaixterm/
+        cp vaixterm packages/portmaster/vaixterm/
+        cp -r res/ packages/portmaster/vaixterm/
+        
+        # Copy PortMaster specific files
+        cp packages/PortMaster/VaixTerm.sh packages/portmaster/vaixterm/
+        cp packages/PortMaster/vaixterm.gptk packages/portmaster/vaixterm/
         
         # Create port.json using the script
         VERSION=${GITHUB_REF#refs/tags/v}
-        cd portmaster/vaixterm
-        ../../scripts/generate_port_json.sh "${VERSION}"
+        if [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="dev"
+        fi
         
-        # Create a zip file for PortMaster
-        cd portmaster
-        zip -r ${ARTIFACT_NAME}-portmaster.zip .
-        mv ${ARTIFACT_NAME}-portmaster.zip ${GITHUB_WORKSPACE}/
+        cd packages/portmaster/vaixterm
+        ../../../scripts/generate_port_json.sh "${VERSION}"
+        
+        # Create a zip file for PortMaster directly in the workspace
+        cd ..
+        zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-portmaster.zip .
+
+        cd ../..
+        # --- MUOS Package ---
+        echo "Creating MUOS package..."
+        mkdir -p packages/muos/VaixTerm/Terminal
+        
+        # Copy the binary and resources
+        cp  vaixterm packages/muos/VaixTerm/Terminal/terminal
+        cp -r res packages/muos/VaixTerm/Terminal/
+        
+        # Copy MUOS specific files
+        cp packages/MUOS/Terminal/mux_launch.sh packages/muos/VaixTerm/Terminal/
+        
+        # Create the .muxapp package directly in the workspace
+        cd packages/muos/VaixTerm
+        zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-muos.muxapp .
+        
+        # List files for debugging
+        ls -la ${GITHUB_WORKSPACE}/*.tar.gz ${GITHUB_WORKSPACE}/*.zip ${GITHUB_WORKSPACE}/*.muxapp
     
-    - name: Upload Artifact
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.ARTIFACT_NAME }}
-        path: ${{ env.ARTIFACT_NAME }}.tar.gz
-        retention-days: 5
+        name: vaixterm-artifacts-${VERSION}
+        path: |
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
+        retention-days: 1
         if-no-files-found: error
     
     - name: Create GitHub Release
@@ -111,22 +147,38 @@ jobs:
       with:
         generate_release_notes: true
         files: |
-          ${{ env.ARTIFACT_NAME }}.tar.gz
-          ${{ env.ARTIFACT_NAME }}-portmaster.zip
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
+          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
         body: |
-          # VaixTerm ${{ github.ref_name }}
+          # VaixTerm ${VERSION}
           
           ## Downloads
-          - **Raw Binary**: [${{ env.ARTIFACT_NAME }}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_NAME }}.tar.gz)
-          - **PortMaster Package**: [${{ env.ARTIFACT_NAME }}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_NAME }}-portmaster.zip)
+          - **Raw Binary**: [${ARTIFACT_PREFIX}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}.tar.gz)
+          - **PortMaster Package**: [${ARTIFACT_PREFIX}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-portmaster.zip)
+          - **MUOS Package**: [${ARTIFACT_PREFIX}-muos.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-muos.muxapp)
           
-          ## Installation
+          ## Installation Instructions
+          
           ### Manual Installation
-          1. Extract the tarball to your SD card
-          2. Run `./vaixterm`
+          1. Extract the `${ARTIFACT_PREFIX}.tar.gz` to your SD card
+          2. Make the binary executable: `chmod +x vaixterm`
+          3. Run: `./vaixterm`
           
           ### PortMaster Installation
-          1. Copy the `.zip` file to the `ports` directory on your SD card
-          2. Launch PortMaster and install VaixTerm
+          1. Copy the `${ARTIFACT_PREFIX}-portmaster.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
+          2. Extract the zip file
+          3. The terminal will be available in the Ports section of your device
+          
+          ### MUOS Installation
+          1. Copy the `${ARTIFACT_PREFIX}-muos.muxapp` file to the `ARCHIVE` on the root of your SD card
+          2. On your device, go to: `Apps` > `Archive`
+          3. Select the `${ARTIFACT_PREFIX}-muos.muxapp` file to install it
+          4. The terminal will be available in the `Apps` section of your MUOS launcher
+          
+          ## Notes
+          - For PortMaster, I have not tested it on all devices.
+          - For MUOS, ensure you have the latest version of the firmware installed
+          - Check the [GitHub repository](https://github.com/${{ github.repository }}) for additional documentation and support
           
           Built from ${{ github.sha }}
