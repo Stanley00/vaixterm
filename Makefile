@@ -65,7 +65,7 @@ else
   CFLAGS := -Wall -Wextra -O2 -flto -fdata-sections -ffunction-sections \
            -fno-stack-protector -fomit-frame-pointer -fno-ident \
            -fno-unwind-tables -fno-asynchronous-unwind-tables \
-           --sysroot=$(SYSROOT) -I$(SYSROOT)/usr/include/SDL2 -DNDEBUG
+           --sysroot=$(SYSROOT) -I$(SYSROOT)/usr/include/SDL2 -Iinclude -DNDEBUG
   LDFLAGS := -flto -Wl,--gc-sections -Wl,--as-needed -Wl,-s \
             --sysroot=$(SYSROOT) -lSDL2 -lSDL2_ttf -lSDL2_image -lutil -lm -no-pie
   BUILD_MODE := cross

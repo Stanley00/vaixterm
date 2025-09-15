@@ -1,0 +1,132 @@
+name: Cross-compile for RG35XXH
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+    # Allow manual triggering of the workflow
+
+env:
+  SDK_URL: https://github.com/rg35xx-cfw/rg35xx-cfw.github.io/releases/download/rg35xx_plus_h_sdk_20240207/arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
+  SDK_DIR: ${{ github.workspace }}/rg35xx-toolchain
+  BUILDROOT_HOST_DIR: ${{ github.workspace }}/rg35xx-toolchain/usr
+  ARTIFACT_NAME: vaixterm-rg35xxh
+
+jobs:
+  build:
+    name: Build for RG35XXH
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up environment
+      run: |
+        # Create toolchain directory
+        mkdir -p ${SDK_DIR}
+        
+        # Download and extract the SDK
+        echo "Downloading SDK..."
+        wget ${SDK_URL} -O sdk.tar.gz
+        tar -xzf sdk.tar.gz -C ${SDK_DIR} --strip-components=1
+        
+        # Fix permissions
+        chmod -R u+w ${SDK_DIR}
+        
+        # Run the SDK's relink script if it exists
+        if [ -f "${SDK_DIR}/relocate-sdk.sh" ]; then
+          echo "Relocating SDK..."
+          ${SDK_DIR}/relocate-sdk.sh
+        fi
+        
+        # Verify the toolchain is accessible
+        if [ ! -f "${BUILDROOT_HOST_DIR}/bin/arm-buildroot-linux-gnueabihf-gcc" ]; then
+          echo "Error: Toolchain not found"
+          ls -la ${BUILDROOT_HOST_DIR}/bin/
+          exit 1
+        fi
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip
+    
+    - name: Build VaixTerm
+      run: |
+        # Set environment variables for cross-compilation
+        export PATH="${BUILDROOT_HOST_DIR}/bin:${PATH}"
+        export BUILDROOT_HOST_DIR="${BUILDROOT_HOST_DIR}"
+        
+        # Build the project
+        make clean
+        make all
+        
+        # Verify the binary
+        file vaixterm
+        
+        # Create release directory
+        mkdir -p release
+        cp vaixterm release/
+        cp -r res/ release/
+        
+        # Create a tar.gz of the release
+        tar -czvf ${ARTIFACT_NAME}.tar.gz -C release .
+    
+    - name: Create PortMaster package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        # Create PortMaster directory structure
+        mkdir -p portmaster/vaixterm
+        
+        # Copy the binary and resources
+        cp vaixterm portmaster/vaixterm/
+        cp -r res/ portmaster/vaixterm/
+        
+        # Create port.json using the script
+        VERSION=${GITHUB_REF#refs/tags/v}
+        cd portmaster/vaixterm
+        ../../scripts/generate_port_json.sh "${VERSION}"
+        
+        # Create a zip file for PortMaster
+        cd portmaster
+        zip -r ${ARTIFACT_NAME}-portmaster.zip .
+        mv ${ARTIFACT_NAME}-portmaster.zip ${GITHUB_WORKSPACE}/
+    
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ${{ env.ARTIFACT_NAME }}.tar.gz
+        retention-days: 5
+        if-no-files-found: error
+    
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        generate_release_notes: true
+        files: |
+          ${{ env.ARTIFACT_NAME }}.tar.gz
+          ${{ env.ARTIFACT_NAME }}-portmaster.zip
+        body: |
+          # VaixTerm ${{ github.ref_name }}
+          
+          ## Downloads
+          - **Raw Binary**: [${{ env.ARTIFACT_NAME }}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_NAME }}.tar.gz)
+          - **PortMaster Package**: [${{ env.ARTIFACT_NAME }}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_NAME }}-portmaster.zip)
+          
+          ## Installation
+          ### Manual Installation
+          1. Extract the tarball to your SD card
+          2. Run `./vaixterm`
+          
+          ### PortMaster Installation
+          1. Copy the `.zip` file to the `ports` directory on your SD card
+          2. Launch PortMaster and install VaixTerm
+          
+          Built from ${{ github.sha }}
