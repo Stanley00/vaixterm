@@ -1,5 +1,7 @@
 #include "terminal.h"
 #include "terminal_state.h" // For shared data structures
+#include "cache_manager.h"  // For glyph cache functions
+#include "dirty_region_tracker.h" // For optimized dirty tracking
 #include <SDL_image.h>      // Added for IMG_LoadTexture
 
 #include <stdio.h>
@@ -163,6 +165,9 @@ Terminal* terminal_create(int cols, int rows, const Config* config, SDL_Renderer
         free(term);
         return NULL;
     }
+    
+    // Initialize dirty region tracking
+    terminal_init_dirty_tracking(term);
     term->screen_texture = NULL;
     term->full_redraw_needed = true;
 
@@ -335,7 +340,7 @@ void terminal_clear_line_to_cursor(Terminal* term, int y, int end_x)
             ' ', term->current_fg, term->current_bg, term->current_attributes
         };
     }
-    term->dirty_lines[y] = true;
+    terminal_mark_line_dirty(term, y);
 }
 
 void terminal_clear_line(Terminal* term, int y, int start_x)
@@ -349,7 +354,7 @@ void terminal_clear_line(Terminal* term, int y, int start_x)
             ' ', term->current_fg, term->current_bg, term->current_attributes
         };
     }
-    term->dirty_lines[y] = true;
+    terminal_mark_line_dirty(term, y);
 }
 
 void terminal_clear_visible_screen(Terminal* term)
@@ -407,7 +412,7 @@ void terminal_scroll_region(Terminal* term, int top_y, int bottom_y, int n_lines
     }
 
     for (int y = top_y; y <= bottom_y; ++y) {
-        term->dirty_lines[y] = true;
+        terminal_mark_line_dirty(term, y);
     }
 
     if (n_lines > 0) {
@@ -544,9 +549,7 @@ void terminal_scroll_up(Terminal* term)
             term->history_size++;
         }
         term->full_redraw_needed = true;
-        for (int i = 0; i < term->rows; ++i) {
-            term->dirty_lines[i] = true;
-        }
+        terminal_mark_lines_dirty(term, 0, term->rows - 1);
         terminal_clear_line(term, term->rows - 1, 0);
     }
 }

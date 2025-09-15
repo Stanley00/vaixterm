@@ -9,7 +9,10 @@
  * and providing visual feedback for active modifier keys.
  */
 #include "osk.h"
-#include "terminal_state.h" // For shared data structures
+#include "terminal_state.h"
+#include "input.h"
+#include "cache_manager.h"
+#include "error_handler.h"
 #include "rendering.h"      // For render_one_osk_key
 #include "input.h"          // For key sequence definitions
 #include "config.h"         // For DEFAULT_KEY_SET_LIST_PATH (now NULL)

@@ -1,8 +1,11 @@
 #include "rendering.h"
-#include "terminal_state.h" // For shared data structures
-#include "osk.h"            // For OSK rendering helpers (e.g., render_osk)
-#include "terminal.h"       // For terminal_get_view_line
-#include "manualfont.h"     // For draw_manual_char
+#include "terminal_state.h"
+#include "terminal.h"
+#include "osk.h"
+#include "manualfont.h"
+#include "cache_manager.h"
+#include "error_handler.h"
+#include "dirty_region_tracker.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,12 +15,11 @@ static inline uint64_t make_glyph_key(uint32_t c, unsigned char attributes, SDL_
 static inline uint32_t hash_key(uint64_t key);
 static GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key);
 static bool glyph_cache_put(GlyphCache* cache, uint64_t key, SDL_Texture* texture, int w, int h);
-
-static void render_text(SDL_Renderer* renderer, TTF_Font* font, const char* text, int x, int y, SDL_Color color, bool centered, int win_w);
 static inline uint64_t make_osk_key(const char* text, OSKKeyState state);
 static OSKKeyCacheEntry* osk_key_cache_get(OSKKeyCache* cache, uint64_t key);
 static bool osk_key_cache_put(OSKKeyCache* cache, uint64_t key, SDL_Texture* texture, int w, int h);
 
+static void render_text(SDL_Renderer* renderer, TTF_Font* font, const char* text, int x, int y, SDL_Color color, bool centered, int win_w);
 static void render_glyph_at(SDL_Renderer* renderer, Terminal* term, TTF_Font* font,
                             Glyph g, int x, int y, int char_w, int char_h);
 
@@ -31,27 +33,6 @@ static inline uint64_t make_glyph_key(uint32_t c, unsigned char attributes, SDL_
     return key;
 }
 
-GlyphCache* glyph_cache_create()
-{
-    GlyphCache* cache = malloc(sizeof(GlyphCache));
-    if (cache) {
-        memset(cache, 0, sizeof(GlyphCache));
-    }
-    return cache;
-}
-
-void glyph_cache_destroy(GlyphCache* cache)
-{
-    if (!cache) {
-        return;
-    }
-    for (int i = 0; i < GLYPH_CACHE_SIZE; ++i) {
-        if (cache->entries[i].texture) {
-            SDL_DestroyTexture(cache->entries[i].texture);
-        }
-    }
-    free(cache);
-}
 
 static inline uint32_t hash_key(uint64_t key)
 {
@@ -68,13 +49,15 @@ static inline uint32_t hash_key(uint64_t key)
 static GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 {
     uint32_t index = hash_key(key);
-    // Quadratic probing
+    // Quadratic probing with LRU tracking
     for (int i = 0; i < GLYPH_CACHE_SIZE; ++i) {
         uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (GLYPH_CACHE_SIZE - 1);
         if (cache->entries[probe_index].key == 0) {
             return NULL;
         }
         if (cache->entries[probe_index].key == key) {
+            // Update LRU tracking
+            cache->last_access[probe_index] = ++cache->access_counter;
             return &cache->entries[probe_index];
         }
     }
@@ -84,43 +67,43 @@ static GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 static bool glyph_cache_put(GlyphCache* cache, uint64_t key, SDL_Texture* texture, int w, int h)
 {
     uint32_t index = hash_key(key);
-    // Quadratic probing
+    // Quadratic probing with LRU eviction
+    uint32_t oldest_index = 0;
+    uint32_t oldest_access = UINT32_MAX;
+    
     for (int i = 0; i < GLYPH_CACHE_SIZE; ++i) {
         uint32_t probe_index = (index + (uint32_t)((i * i + i) / 2)) & (GLYPH_CACHE_SIZE - 1);
+        
         if (cache->entries[probe_index].key == 0) {
+            // Empty slot found
             cache->entries[probe_index].key = key;
             cache->entries[probe_index].texture = texture;
             cache->entries[probe_index].w = w;
             cache->entries[probe_index].h = h;
+            cache->last_access[probe_index] = ++cache->access_counter;
             return true;
         }
+        
+        // Track oldest entry for potential eviction
+        if (cache->last_access[probe_index] < oldest_access) {
+            oldest_access = cache->last_access[probe_index];
+            oldest_index = probe_index;
+        }
     }
-    return false;
+    
+    // Cache full, evict oldest entry
+    if (cache->entries[oldest_index].texture) {
+        SDL_DestroyTexture(cache->entries[oldest_index].texture);
+    }
+    cache->entries[oldest_index].key = key;
+    cache->entries[oldest_index].texture = texture;
+    cache->entries[oldest_index].w = w;
+    cache->entries[oldest_index].h = h;
+    cache->last_access[oldest_index] = ++cache->access_counter;
+    return true;
 }
 
 // --- OSK Key Cache Implementation ---
-
-OSKKeyCache* osk_key_cache_create()
-{
-    OSKKeyCache* cache = malloc(sizeof(OSKKeyCache));
-    if (cache) {
-        memset(cache, 0, sizeof(OSKKeyCache));
-    }
-    return cache;
-}
-
-void osk_key_cache_destroy(OSKKeyCache* cache)
-{
-    if (!cache) {
-        return;
-    }
-    for (int i = 0; i < OSK_KEY_CACHE_SIZE; ++i) {
-        if (cache->entries[i].texture) {
-            SDL_DestroyTexture(cache->entries[i].texture);
-        }
-    }
-    free(cache);
-}
 
 static inline uint64_t make_osk_key(const char* text, OSKKeyState state)
 {
@@ -175,6 +158,8 @@ static void render_glyph_at(SDL_Renderer* renderer, Terminal* term, TTF_Font* fo
 {
     SDL_Color actual_fg = g.fg;
     SDL_Color actual_bg = g.bg;
+    
+    // Fast path for common cases
     if (g.attributes & ATTR_INVERSE) {
         SDL_Color temp = actual_fg;
         actual_fg = actual_bg;
@@ -185,27 +170,37 @@ static void render_glyph_at(SDL_Renderer* renderer, Terminal* term, TTF_Font* fo
         actual_fg = actual_bg;
     }
 
+    // Optimize background drawing - only draw if different from default or no background image
+    static SDL_Color last_bg_color = {0, 0, 0, 0};
     bool should_draw_bg = true;
+    
     if (term->background_texture) {
+        // With background image, only draw cell background if it differs from default
         if (actual_bg.r == term->default_bg.r &&
-                actual_bg.g == term->default_bg.g &&
-                actual_bg.b == term->default_bg.b) {
-            should_draw_bg = false;
+            actual_bg.g == term->default_bg.g &&
+            actual_bg.b == term->default_bg.b &&
+            actual_bg.a == term->default_bg.a) {
+            should_draw_bg = false; // Let background image show through
         }
     }
 
     if (should_draw_bg) {
+        // Only change render color if different from last
+        if (actual_bg.r != last_bg_color.r || actual_bg.g != last_bg_color.g || 
+            actual_bg.b != last_bg_color.b || actual_bg.a != last_bg_color.a) {
+            SDL_SetRenderDrawColor(renderer, actual_bg.r, actual_bg.g, actual_bg.b, actual_bg.a);
+            last_bg_color = actual_bg;
+        }
         SDL_Rect bg_rect = {x * char_w, y * char_h, char_w, char_h};
-        SDL_SetRenderDrawColor(renderer, actual_bg.r, actual_bg.g, actual_bg.b, actual_bg.a);
         SDL_RenderFillRect(renderer, &bg_rect);
     }
 
-    if (draw_manual_char(renderer, g.character, x * char_w, y * char_h, char_w, char_h, actual_fg)) {
+    // Fast path for spaces and control chars
+    if (g.character == ' ' || g.character <= 0x1F || (g.character >= 0x7F && g.character <= 0x9F)) {
         return;
     }
-
-    bool is_control_char = (g.character <= 0x1F) || (g.character >= 0x7F && g.character <= 0x9F);
-    if (g.character == ' ' || is_control_char) {
+    
+    if (draw_manual_char(renderer, g.character, x * char_w, y * char_h, char_w, char_h, actual_fg)) {
         return;
     }
 
@@ -245,15 +240,19 @@ static void render_glyph_at(SDL_Renderer* renderer, Terminal* term, TTF_Font* fo
         }
         TTF_SetFontStyle(font, font_style);
 
+        // Use blended rendering for better text quality with anti-aliasing
         SDL_Surface* surface = TTF_RenderUTF8_Blended(font, text, actual_fg);
         if (surface) {
             SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-            if (texture && glyph_cache_put(term->glyph_cache, key, texture, surface->w, surface->h)) {
-                entry = glyph_cache_get(term->glyph_cache, key);
-            } else if (texture) {
-                SDL_Rect glyph_rect = {x * char_w, y * char_h, surface->w, surface->h};
-                SDL_RenderCopy(renderer, texture, NULL, &glyph_rect);
-                SDL_DestroyTexture(texture);
+            if (texture) {
+                if (glyph_cache_put(term->glyph_cache, key, texture, surface->w, surface->h)) {
+                    entry = glyph_cache_get(term->glyph_cache, key);
+                } else {
+                    // Cache full, render directly and destroy
+                    SDL_Rect glyph_rect = {x * char_w, y * char_h, surface->w, surface->h};
+                    SDL_RenderCopy(renderer, texture, NULL, &glyph_rect);
+                    SDL_DestroyTexture(texture);
+                }
             }
             SDL_FreeSurface(surface);
         }
@@ -268,19 +267,12 @@ static void render_glyph_at(SDL_Renderer* renderer, Terminal* term, TTF_Font* fo
 
 void terminal_render(SDL_Renderer* renderer, Terminal* term, TTF_Font* font, int char_w, int char_h, OnScreenKeyboard* osk, bool force_full_render, int win_w, int win_h)
 {
-    bool needs_texture_update = term->full_redraw_needed;
-    if (force_full_render) {
-        needs_texture_update = true;
-    } else {
-        if (!needs_texture_update) {
-            for (int i = 0; i < term->rows; i++) {
-                if (term->dirty_lines[i]) {
-                    needs_texture_update = true;
-                    break;
-                }
-            }
-        }
+    // Fast path: Skip rendering if nothing changed and not forced
+    if (!force_full_render && !term->full_redraw_needed && !term->has_dirty_regions && !term->cursor_visible) {
+        return; // Nothing to render
     }
+    
+    bool needs_texture_update = term->full_redraw_needed || force_full_render || term->has_dirty_regions;
 
     if (needs_texture_update) {
         SDL_SetRenderTarget(renderer, term->screen_texture);
@@ -295,13 +287,10 @@ void terminal_render(SDL_Renderer* renderer, Terminal* term, TTF_Font* font, int
             }
         }
 
-        for (int y = 0; y < term->rows; ++y) {
-            if (term->dirty_lines[y] || force_full_repaint_this_frame) {
-                if (!force_full_repaint_this_frame && term->background_texture) {
-                    SDL_Rect line_rect = {0, y * char_h, win_w, char_h};
-                    SDL_RenderCopy(renderer, term->background_texture, &line_rect, &line_rect);
-                }
-
+        // Optimized rendering using dirty region bounds
+        if (force_full_repaint_this_frame) {
+            // Full screen render
+            for (int y = 0; y < term->rows; ++y) {
                 Glyph* line = terminal_get_view_line(term, y);
                 if (line) {
                     for (int x = 0; x < term->cols; ++x) {
@@ -309,8 +298,32 @@ void terminal_render(SDL_Renderer* renderer, Terminal* term, TTF_Font* font, int
                     }
                 }
             }
+        } else if (term->has_dirty_regions) {
+            // Only render dirty region bounds for maximum performance
+            if (term->background_texture) {
+                // Render background for dirty regions only
+                SDL_Rect src_rect = {0, term->dirty_min_y * char_h, win_w, (term->dirty_max_y - term->dirty_min_y + 1) * char_h};
+                SDL_Rect dst_rect = {0, term->dirty_min_y * char_h, win_w, (term->dirty_max_y - term->dirty_min_y + 1) * char_h};
+                SDL_RenderCopy(renderer, term->background_texture, &src_rect, &dst_rect);
+            } else {
+                // Clear dirty region with background color
+                SDL_SetRenderDrawColor(renderer, term->default_bg.r, term->default_bg.g, term->default_bg.b, 255);
+                SDL_Rect clear_rect = {0, term->dirty_min_y * char_h, win_w, (term->dirty_max_y - term->dirty_min_y + 1) * char_h};
+                SDL_RenderFillRect(renderer, &clear_rect);
+            }
+            
+            for (int y = term->dirty_min_y; y <= term->dirty_max_y; ++y) {
+                if (term->dirty_lines[y]) {
+                    Glyph* line = terminal_get_view_line(term, y);
+                    if (line) {
+                        for (int x = 0; x < term->cols; ++x) {
+                            render_glyph_at(renderer, term, font, line[x], x, y, char_w, char_h);
+                        }
+                    }
+                }
+            }
         }
-        memset(term->dirty_lines, 0, sizeof(bool) * (size_t)term->rows);
+        terminal_clear_dirty_lines(term);
         term->full_redraw_needed = false;
     }
 

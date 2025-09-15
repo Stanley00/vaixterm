@@ -47,7 +47,8 @@ typedef struct {
 #define ATTR_BLINK      (1 << 4)
 
 // --- Glyph Cache ---
-#define GLYPH_CACHE_SIZE 4096 // Number of glyphs to cache
+#define GLYPH_CACHE_SIZE 8192 // Increased cache size for better performance
+#define GLYPH_CACHE_LRU_SIZE 256 // LRU eviction tracking
 
 typedef struct {
     uint64_t key;
@@ -57,6 +58,8 @@ typedef struct {
 
 typedef struct {
     GlyphCacheEntry entries[GLYPH_CACHE_SIZE];
+    uint32_t access_counter; // Global access counter for LRU
+    uint32_t last_access[GLYPH_CACHE_SIZE]; // Last access time for each entry
 } GlyphCache;
 
 // --- OSK Key Cache ---
@@ -178,10 +181,19 @@ typedef struct {
 
     // Dirty line tracking for render optimization
     bool* dirty_lines;
+    
+    // Enhanced dirty region tracking
+    int dirty_min_y;  // Minimum dirty line (-1 if none)
+    int dirty_max_y;  // Maximum dirty line (-1 if none)
+    bool has_dirty_regions;
 
     // Double buffering
     SDL_Texture* screen_texture;
     bool full_redraw_needed;
+    
+    // Performance optimization flags
+    bool skip_render_frame;  // Skip rendering this frame for power saving
+    Uint32 last_render_time; // Time of last render for adaptive FPS
 
     // Background image
     SDL_Texture* background_texture;
