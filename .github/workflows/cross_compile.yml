@@ -77,8 +77,8 @@ jobs:
         cp vaixterm release/
         cp -r res/ release/
         
-        # Create a tar.gz of the release directly in the workspace
-        tar -czvf ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}.tar.gz -C release .
+        # Create a tar.gz of the release
+        tar -czvf ${GITHUB_WORKSPACE}/vaixterm-rg35xxh.tar.gz -C release .
     
     - name: Create Packages
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
@@ -107,11 +107,10 @@ jobs:
         cd packages/portmaster/vaixterm
         ../../../scripts/generate_port_json.sh "${VERSION}"
         
-        # Create a zip file for PortMaster directly in the workspace
+        # Create a zip file for PortMaster
         cd ..
-        zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-portmaster.zip .
-
-        cd ../..
+        zip -r ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-portmaster.zip .
+        
         # --- MUOS Package ---
         echo "Creating MUOS package..."
         mkdir -p packages/muos/VaixTerm/Terminal
@@ -123,9 +122,9 @@ jobs:
         # Copy MUOS specific files
         cp packages/MUOS/Terminal/mux_launch.sh packages/muos/VaixTerm/Terminal/
         
-        # Create the .muxapp package directly in the workspace
+        # Create the .muxapp package
         cd packages/muos/VaixTerm
-        zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-muos.muxapp .
+        zip -r ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-muos.muxapp .
         
         # List files for debugging
         ls -la ${GITHUB_WORKSPACE}/*.tar.gz ${GITHUB_WORKSPACE}/*.zip ${GITHUB_WORKSPACE}/*.muxapp
@@ -135,9 +134,9 @@ jobs:
       with:
         name: vaixterm-artifacts-${VERSION}
         path: |
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh.tar.gz
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-portmaster.zip
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-muos.muxapp
         retention-days: 1
         if-no-files-found: error
     
@@ -147,33 +146,33 @@ jobs:
       with:
         generate_release_notes: true
         files: |
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh.tar.gz
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-portmaster.zip
+          ${GITHUB_WORKSPACE}/vaixterm-rg35xxh-muos.muxapp
         body: |
           # VaixTerm ${VERSION}
           
           ## Downloads
-          - **Raw Binary**: [${ARTIFACT_PREFIX}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}.tar.gz)
-          - **PortMaster Package**: [${ARTIFACT_PREFIX}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-portmaster.zip)
-          - **MUOS Package**: [${ARTIFACT_PREFIX}-muos.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-muos.muxapp)
+          - **Raw Binary**: [vaixterm-rg35xxh.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/vaixterm-rg35xxh.tar.gz)
+          - **PortMaster Package**: [vaixterm-rg35xxh-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/vaixterm-rg35xxh-portmaster.zip)
+          - **MUOS Package**: [vaixterm-rg35xxh-muos.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/vaixterm-rg35xxh-muos.muxapp)
           
           ## Installation Instructions
           
           ### Manual Installation
-          1. Extract the `${ARTIFACT_PREFIX}.tar.gz` to your SD card
+          1. Extract the `vaixterm-rg35xxh.tar.gz` to your SD card
           2. Make the binary executable: `chmod +x vaixterm`
           3. Run: `./vaixterm`
           
           ### PortMaster Installation
-          1. Copy the `${ARTIFACT_PREFIX}-portmaster.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
+          1. Copy the `vaixterm-rg35xxh-portmaster.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
           2. Extract the zip file
           3. The terminal will be available in the Ports section of your device
           
           ### MUOS Installation
-          1. Copy the `${ARTIFACT_PREFIX}-muos.muxapp` file to the `ARCHIVE` on the root of your SD card
+          1. Copy the `vaixterm-rg35xxh-muos.muxapp` file to the `ARCHIVE` on the root of your SD card
           2. On your device, go to: `Apps` > `Archive`
-          3. Select the `${ARTIFACT_PREFIX}-muos.muxapp` file to install it
+          3. Select the `vaixterm-rg35xxh-muos.muxapp` file to install it
           4. The terminal will be available in the `Apps` section of your MUOS launcher
           
           ## Notes
