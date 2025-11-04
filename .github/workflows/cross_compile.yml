@@ -48,7 +48,7 @@ jobs:
         fi
         
         # Verify the toolchain is accessible
-        if [ ! -f "${BUILDROOT_HOST_DIR}/bin/arm-buildroot-linux-gnueabihf-gcc" ]; then
+        if [ ! -f "${BUILDROOT_HOST_DIR}/bin/aarch64-buildroot-linux-gnu-gcc" ]; then
           echo "Error: Toolchain not found"
           ls -la ${BUILDROOT_HOST_DIR}/bin/
           exit 1
