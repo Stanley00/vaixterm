@@ -11,10 +11,10 @@ on:
     # Allow manual triggering of the workflow
 
 env:
-  SDK_URL: https://github.com/rg35xx-cfw/rg35xx-cfw.github.io/releases/download/rg35xx_plus_h_sdk_20240207/arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
+  SDK_URL: https://github.com/joyrider3774/sdks/releases/download/v1.0/aarch64-buildroot-linux-gnu_sdk-buildroot.tar.gz 
   SDK_DIR: ${{ github.workspace }}/rg35xx-toolchain
   BUILDROOT_HOST_DIR: ${{ github.workspace }}/rg35xx-toolchain/usr
-  ARTIFACT_PREFIX: vaixterm-rg35xxh
+  ARTIFACT_PREFIX: vaixterm-rg35xxh-aarch64
   VERSION: ${{ github.ref_name && startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
 
 jobs:
@@ -48,7 +48,7 @@ jobs:
         fi
         
         # Verify the toolchain is accessible
-        if [ ! -f "${BUILDROOT_HOST_DIR}/bin/arm-buildroot-linux-gnueabihf-gcc" ]; then
+        if [ ! -f "${BUILDROOT_HOST_DIR}/bin/aarch64-buildroot-linux-gnu-gcc" ]; then
           echo "Error: Toolchain not found"
           ls -la ${BUILDROOT_HOST_DIR}/bin/
           exit 1
@@ -57,7 +57,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip
+        sudo apt-get install -y build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip file --reinstall
     
     - name: Build VaixTerm
       run: |
@@ -70,7 +70,7 @@ jobs:
         make all
         
         # Verify the binary
-        file vaixterm
+        file vaixterm || true
         
         # Create release directory
         mkdir -p release
