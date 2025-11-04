@@ -11,10 +11,10 @@ on:
     # Allow manual triggering of the workflow
 
 env:
-  SDK_URL: https://github.com/rg35xx-cfw/rg35xx-cfw.github.io/releases/download/rg35xx_plus_h_sdk_20240207/arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
+  SDK_URL: https://github.com/joyrider3774/sdks/releases/download/v1.0/aarch64-buildroot-linux-gnu_sdk-buildroot.tar.gz 
   SDK_DIR: ${{ github.workspace }}/rg35xx-toolchain
   BUILDROOT_HOST_DIR: ${{ github.workspace }}/rg35xx-toolchain/usr
-  ARTIFACT_PREFIX: vaixterm-rg35xxh
+  ARTIFACT_PREFIX: vaixterm-rg35xxh-aarch64
   VERSION: ${{ github.ref_name && startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
 
 jobs:
