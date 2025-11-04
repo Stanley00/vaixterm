@@ -14,8 +14,8 @@ env:
   SDK_URL: https://github.com/rg35xx-cfw/rg35xx-cfw.github.io/releases/download/rg35xx_plus_h_sdk_20240207/arm-buildroot-linux-gnueabihf_sdk-buildroot.tar.gz
   SDK_DIR: ${{ github.workspace }}/rg35xx-toolchain
   BUILDROOT_HOST_DIR: ${{ github.workspace }}/rg35xx-toolchain/usr
-  VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
-  ARTIFACT_PREFIX: vaixterm-rg35xxh-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
+  ARTIFACT_PREFIX: vaixterm-rg35xxh
+  VERSION: ${{ github.ref_name && startsWith(github.ref, 'refs/tags/') && github.ref_name || 'dev' }}
 
 jobs:
   build:
@@ -77,8 +77,8 @@ jobs:
         cp vaixterm release/
         cp -r res/ release/
         
-        # Create a tar.gz of the release directly in the workspace
-        tar -czvf ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}.tar.gz -C release .
+        # Create a tar.gz of the release
+        tar -czvf ${ARTIFACT_PREFIX}.tar.gz -C release .
     
     - name: Create Packages
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
@@ -107,24 +107,59 @@ jobs:
         cd packages/portmaster/vaixterm
         ../../../scripts/generate_port_json.sh "${VERSION}"
         
-        # Create a zip file for PortMaster directly in the workspace
+        # Create a zip file for PortMaster
         cd ..
-        zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-portmaster.zip .
-
-        cd ../..
+        zip -r ${ARTIFACT_PREFIX}-portmaster.zip .
+        mv ${ARTIFACT_PREFIX}-portmaster.zip ${GITHUB_WORKSPACE}/
+        
         # --- MUOS Package ---
         echo "Creating MUOS package..."
-        mkdir -p packages/muos/VaixTerm/Terminal
         
-        # Copy the binary and resources
-        cp  vaixterm packages/muos/VaixTerm/Terminal/terminal
-        cp -r res packages/muos/VaixTerm/Terminal/
+        # Create necessary directories
+        mkdir -p ${GITHUB_WORKSPACE}/packages/muos/VaixTerm/Terminal
+        mkdir -p ${GITHUB_WORKSPACE}/packages/MUOS/Terminal
+        
+        # Change to workspace root
+        cd ${GITHUB_WORKSPACE}
+        
+        # Debug: Show directory structure
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -la
+        
+        # Copy the binary
+        if [ -f "vaixterm" ]; then
+          echo "Copying vaixterm binary..."
+          cp -v vaixterm ${GITHUB_WORKSPACE}/packages/muos/VaixTerm/Terminal/terminal
+        else
+          echo "Error: vaixterm binary not found in $(pwd)"
+          ls -la
+          exit 1
+        fi
+        
+        # Copy resources
+        if [ -d "res" ]; then
+          echo "Copying resources..."
+          cp -rv res ${GITHUB_WORKSPACE}/packages/muos/VaixTerm/Terminal/
+        else
+          echo "Warning: res directory not found in $(pwd)"
+          ls -la
+          exit 1
+        fi
+        
+        # Create a default mux_launch.sh
+        echo 'Creating mux_launch.sh...'
+        mkdir -p ${GITHUB_WORKSPACE}/packages/MUOS/Terminal
+        echo -e '#!/bin/sh\ncd "$(dirname "$0")"\nexec ./terminal' > ${GITHUB_WORKSPACE}/packages/MUOS/Terminal/mux_launch.sh
+        chmod +x ${GITHUB_WORKSPACE}/packages/MUOS/Terminal/mux_launch.sh
         
         # Copy MUOS specific files
-        cp packages/MUOS/Terminal/mux_launch.sh packages/muos/VaixTerm/Terminal/
+        echo "Copying MUOS specific files..."
+        cp -v ${GITHUB_WORKSPACE}/packages/MUOS/Terminal/mux_launch.sh ${GITHUB_WORKSPACE}/packages/muos/VaixTerm/Terminal/
         
-        # Create the .muxapp package directly in the workspace
-        cd packages/muos/VaixTerm
+        # Create the .muxapp package
+        echo "Creating .muxapp package..."
+        cd ${GITHUB_WORKSPACE}/packages/muos/VaixTerm
         zip -r ${GITHUB_WORKSPACE}/${ARTIFACT_PREFIX}-muos.muxapp .
         
         # List files for debugging
@@ -133,12 +168,12 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: vaixterm-artifacts-${VERSION}
+        name: vaixterm-artifacts
         path: |
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
-        retention-days: 1
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}.tar.gz
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}-portmaster.zip
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}-muos.muxapp
+        retention-days: 5
         if-no-files-found: error
     
     - name: Create GitHub Release
@@ -147,38 +182,39 @@ jobs:
       with:
         generate_release_notes: true
         files: |
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}.tar.gz
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-portmaster.zip
-          ${{ github.workspace }}/${ARTIFACT_PREFIX}-muos.muxapp
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}.tar.gz
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}-portmaster.zip
+          ${{ github.workspace }}/${{ env.ARTIFACT_PREFIX }}-muos.muxapp
         body: |
-          # VaixTerm ${VERSION}
+          # VaixTerm ${{ env.VERSION }}
           
           ## Downloads
-          - **Raw Binary**: [${ARTIFACT_PREFIX}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}.tar.gz)
-          - **PortMaster Package**: [${ARTIFACT_PREFIX}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-portmaster.zip)
-          - **MUOS Package**: [${ARTIFACT_PREFIX}-muos.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ARTIFACT_PREFIX}-muos.muxapp)
+          - **Raw Binary**: [${{ env.ARTIFACT_PREFIX }}.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_PREFIX }}.tar.gz)
+          - **PortMaster Package**: [${{ env.ARTIFACT_PREFIX }}-portmaster.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_PREFIX }}-portmaster.zip)
+          - **MUOS Package**: [${{ env.ARTIFACT_PREFIX }}-muos.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_PREFIX }}-muos.muxapp)
           
           ## Installation Instructions
           
           ### Manual Installation
-          1. Extract the `${ARTIFACT_PREFIX}.tar.gz` to your SD card
+          1. Extract the `${{ env.ARTIFACT_PREFIX }}.tar.gz` to your SD card
           2. Make the binary executable: `chmod +x vaixterm`
           3. Run: `./vaixterm`
           
           ### PortMaster Installation
-          1. Copy the `${ARTIFACT_PREFIX}-portmaster.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
-          2. Extract the zip file
-          3. The terminal will be available in the Ports section of your device
+          1. Copy the `${{ env.ARTIFACT_PREFIX }}-portmaster.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
+          2. Launch PortMaster from your device's app launcher
+          3. Navigate to the "Ready to Install" section
+          4. Select VaixTerm and follow the on-screen instructions
           
           ### MUOS Installation
-          1. Copy the `${ARTIFACT_PREFIX}-muos.muxapp` file to the `ARCHIVE` on the root of your SD card
+          1. Copy the `${{ env.ARTIFACT_PREFIX }}-muos.muxapp` file to the root of your SD card
           2. On your device, go to: `Apps` > `Archive`
-          3. Select the `${ARTIFACT_PREFIX}-muos.muxapp` file to install it
+          3. Select the `.muxapp` file to install it
           4. The terminal will be available in the `Apps` section of your MUOS launcher
           
           ## Notes
-          - For PortMaster, I have not tested it on all devices.
           - For MUOS, ensure you have the latest version of the firmware installed
+          - On some devices, you may need to restart the device after installing new applications
           - Check the [GitHub repository](https://github.com/${{ github.repository }}) for additional documentation and support
           
           Built from ${{ github.sha }}

@@ -29,8 +29,8 @@ NATIVE_CFLAGS = -Wall -Wextra -O2 \
 # OS-specific flags
 ifeq ($(UNAME_S),Darwin)
     # macOS
-    SDL_CFLAGS := $(shell sdl2-config --cflags)
-    SDL_LIBS := $(shell sdl2-config --libs) -lSDL2_ttf -lSDL2_image -lm
+    SDL_CFLAGS := $(shell pkg-config sdl2 --cflags)
+    SDL_LIBS := $(shell pkg-config sdl2 --libs) -lSDL2_ttf -lSDL2_image -lm
     
     NATIVE_CFLAGS += $(SDL_CFLAGS)
     NATIVE_LDFLAGS = -Wl,-dead_strip \

@@ -43,11 +43,57 @@
 #include "debug.h"
 
 /**
+ * @brief Sets up SDL video hints for cross-platform compatibility.
+ */
+static void setup_video_hints(void)
+{
+    // Allow SDL to try multiple video drivers for better compatibility
+    // This helps on systems where the default driver fails
+    SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "1");
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengles2,opengles,opengl,software");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+    SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
+    
+    // Enable batching for better performance
+    SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1");
+    
+    DEBUG_LOG("Video hints configured for cross-platform compatibility");
+}
+
+/**
+ * @brief Configures OpenGL attributes for cross-platform compatibility.
+ * Supports both OpenGL ES (embedded devices) and desktop OpenGL.
+ */
+static void setup_gl_attributes(void)
+{
+    // Try OpenGL ES 2.0 first (works on embedded devices and desktops)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    
+    // Basic attributes that work across platforms
+    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    
+    // Disable features that may not be available on all platforms
+    SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
+    
+    DEBUG_LOG("OpenGL attributes configured (ES 2.0 profile)");
+}
+
+/**
  * @brief Initializes SDL subsystems and creates the main window and renderer.
  */
 bool app_init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font, 
                   const Config* config, int* char_w, int* char_h)
 {
+    // Set up video hints before initializing SDL
+    setup_video_hints();
+    
     DEBUG_LOG("Initializing SDL...");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) < 0) {
         ERROR_LOG("SDL_Init Error: %s", SDL_GetError());
@@ -73,6 +119,9 @@ bool app_init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font,
     }
     DEBUG_LOG("SDL_image initialized successfully");
 
+    // Set up OpenGL attributes before creating window
+    setup_gl_attributes();
+    
     DEBUG_LOG("Creating window (%dx%d)...", config->win_w, config->win_h);
     *win = SDL_CreateWindow("VaixTerm", 
                            SDL_WINDOWPOS_UNDEFINED, 
@@ -80,32 +129,87 @@ bool app_init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font,
                            config->win_w, 
                            config->win_h, 
                            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    
     if (!*win) {
-        ERROR_LOG("Window could not be created! SDL_Error: %s", SDL_GetError());
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return false;
+        // Try again without OpenGL ES profile (desktop OpenGL fallback)
+        DEBUG_LOG("Failed with OpenGL ES, trying desktop OpenGL...");
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+        
+        *win = SDL_CreateWindow("VaixTerm", 
+                               SDL_WINDOWPOS_UNDEFINED, 
+                               SDL_WINDOWPOS_UNDEFINED, 
+                               config->win_w, 
+                               config->win_h, 
+                               SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+        
+        if (!*win) {
+            // Final fallback: try without any OpenGL attributes
+            DEBUG_LOG("Failed with desktop OpenGL, trying without GL attributes...");
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, 0);
+            
+            *win = SDL_CreateWindow("VaixTerm", 
+                                   SDL_WINDOWPOS_UNDEFINED, 
+                                   SDL_WINDOWPOS_UNDEFINED, 
+                                   config->win_w, 
+                                   config->win_h, 
+                                   SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+            
+            if (!*win) {
+                ERROR_LOG("Window could not be created! SDL_Error: %s", SDL_GetError());
+                IMG_Quit();
+                TTF_Quit();
+                SDL_Quit();
+                return false;
+            }
+        }
     }
     DEBUG_LOG("Window created successfully");
 
     DEBUG_LOG("Creating renderer...");
-    *renderer = SDL_CreateRenderer(*win, -1, 
-                                  SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!*renderer) {
-        DEBUG_LOG("Warning: Could not create accelerated renderer, trying software renderer...");
-        *renderer = SDL_CreateRenderer(*win, -1, SDL_RENDERER_SOFTWARE);
-        if (!*renderer) {
-            ERROR_LOG("Renderer could not be created! SDL_Error: %s", SDL_GetError());
-            SDL_DestroyWindow(*win);
-            IMG_Quit();
-            TTF_Quit();
-            SDL_Quit();
-            return false;
+    
+    // Try multiple renderer configurations for maximum compatibility
+    const struct {
+        const char* name;
+        Uint32 flags;
+    } renderer_configs[] = {
+        {"OpenGLES2 accelerated with vsync", SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC},
+        {"OpenGLES2 accelerated", SDL_RENDERER_ACCELERATED},
+        {"Default accelerated", SDL_RENDERER_ACCELERATED},
+        {"Software", SDL_RENDERER_SOFTWARE},
+        {"Auto (no flags)", 0}
+    };
+    
+    bool renderer_created = false;
+    for (size_t i = 0; i < sizeof(renderer_configs) / sizeof(renderer_configs[0]); i++) {
+        DEBUG_LOG("Trying renderer: %s", renderer_configs[i].name);
+        *renderer = SDL_CreateRenderer(*win, -1, renderer_configs[i].flags);
+        
+        if (*renderer) {
+            DEBUG_LOG("Successfully created renderer: %s", renderer_configs[i].name);
+            
+            // Query and log renderer info
+            SDL_RendererInfo info;
+            if (SDL_GetRendererInfo(*renderer, &info) == 0) {
+                DEBUG_LOG("Renderer name: %s", info.name);
+                DEBUG_LOG("Renderer flags: 0x%x", info.flags);
+            }
+            
+            renderer_created = true;
+            break;
+        } else {
+            DEBUG_LOG("Failed: %s", SDL_GetError());
         }
-        DEBUG_LOG("Using software renderer");
-    } else {
-        DEBUG_LOG("Using hardware-accelerated renderer");
+    }
+    
+    if (!renderer_created) {
+        ERROR_LOG("Could not create any renderer! Last SDL_Error: %s", SDL_GetError());
+        SDL_DestroyWindow(*win);
+        IMG_Quit();
+        TTF_Quit();
+        SDL_Quit();
+        return false;
     }
 
     // Set renderer draw color to black (background)
