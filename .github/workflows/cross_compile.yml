@@ -57,7 +57,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip
+        sudo apt-get install -y file build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip
     
     - name: Build VaixTerm
       run: |
@@ -70,7 +70,7 @@ jobs:
         make all
         
         # Verify the binary
-        file vaixterm
+        file vaixterm || true
         
         # Create release directory
         mkdir -p release
