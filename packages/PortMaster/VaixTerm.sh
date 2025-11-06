@@ -1,27 +1,56 @@
 #!/bin/bash
+# PORTMASTER: vaixterm.zip, VaixTerm.sh
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
-# Source the controls.txt from PortMaster directory
-if [ -f "/opt/system/Tools/PortMaster/controls.txt" ]; then
-    . "/opt/system/Tools/PortMaster/controls.txt"
+if [ -d "/opt/system/Tools/PortMaster/" ]; then
+  controlfolder="/opt/system/Tools/PortMaster"
+elif [ -d "/opt/tools/PortMaster/" ]; then
+  controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
 else
-    . "./controls.txt"
+  controlfolder="/roms/ports/PortMaster"
 fi
 
-# Set up environment variables
-export TERM=xterm-256color
-export TERMINFO=/usr/share/terminfo
+source $controlfolder/control.txt
+source $controlfolder/device_info.txt
 
-# Set up paths
-PORTDIR="/$directory/ports/vaixterm"
-cd "$PORTDIR"
+[ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
-# Launch the terminal with gamepad controls
-$GPTOKEYB "terminal" -c "./vaixterm.gptk" &
+get_controls
 
-# Run the terminal
-./terminal
+GAMEDIR=/$directory/ports/vaixterm
+CONFDIR="$GAMEDIR/conf/"
+BINARY=vaixterm
 
-# Clean up on exit
-killall gptokeyb
-"$ESUDO" systemctl restart oga_events &
-printf "\033c" > /dev/tty1
+> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
+
+mkdir -p "$GAMEDIR/conf"
+
+if [ "$CFW_NAME" = "TrimUI" ]; then
+    export LD_LIBRARY_PATH="$GAMEDIR/libs.compat:$LD_LIBRARY_PATH"
+    export BINARY=nsfb.compat
+elif [[ $CFW_NAME == *"ArkOS"* ]]; then
+    export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
+        export BINARY=nsfb.compat
+elif [ "$CFW_NAME" = "ROCKNIX" ]; then
+    rm -f "$GAMEDIR/libs.${DEVICE_ARCH}/libwayland-client.so.0"
+    export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
+else
+    export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
+fi
+
+export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+export NETSURFRES="$GAMEDIR/resources"
+export NETSURF_DIR="$GAMEDIR/"
+export XDG_DATA_HOME="$CONFDIR"
+
+cd $GAMEDIR
+
+#$GPTOKEYB "$BINARY" -c "./vaixterm.gptk" &
+echo $DISPLAY_WIDTH
+./$BINARY  -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT"
+
+$ESUDO kill -9 $(pidof gptokeyb)
+$ESUDO systemctl restart oga_events &
+printf "\033c" > /dev/tty0

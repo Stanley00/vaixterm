@@ -1,0 +1,8 @@
+# VaixTerm Gamepad Configuration
+
+
+# Analog stick controls (mouse emulation)
+leftx = axis(0)
+lefty = axis(1)
+rightx = axis(2)
+righty = axis(3)

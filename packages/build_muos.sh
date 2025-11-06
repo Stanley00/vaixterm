@@ -11,17 +11,18 @@ BUILD_DIR="./build"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+# Copy base MuOS files
+cp -r MUOS/Terminal "$BUILD_DIR/"
+
 # Copy the terminal binary
-cp ../vaixterm "$BUILD_DIR/terminal"
-chmod +x "$BUILD_DIR/terminal"
+cp ../vaixterm "$BUILD_DIR/Terminal/terminal"
+chmod +x "$BUILD_DIR/Terminal/terminal"
 
 # Copy resource files
-mkdir -p "$BUILD_DIR/res"
-cp -r MUOS/Terminal/res/* "$BUILD_DIR/res/"
+mkdir -p "$BUILD_DIR/Terminal/res"
+cp -r ../res/* "$BUILD_DIR/Terminal/res/"
 
-# Copy launch script
-cp MUOS/Terminal/mux_launch.sh "$BUILD_DIR/"
-chmod +x "$BUILD_DIR/mux_launch.sh"
+chmod +x "$BUILD_DIR/Terminal/mux_launch.sh"
 
 # Create the .muxapp package
 cd "$BUILD_DIR"

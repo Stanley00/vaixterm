@@ -12,8 +12,9 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 # Create the package directory structure
+cp -r PortMaster/* "$BUILD_DIR/"
+
 PACKAGE_DIR="$BUILD_DIR/vaixterm"
-mkdir -p "$PACKAGE_DIR"
 
 # Copy the terminal binary
 cp ../vaixterm "$PACKAGE_DIR/terminal"
@@ -21,12 +22,10 @@ chmod +x "$PACKAGE_DIR/terminal"
 
 # Copy resource files
 mkdir -p "$PACKAGE_DIR/res"
-cp -r PortMaster/res/* "$PACKAGE_DIR/res/"
+cp -r ../res/* "$PACKAGE_DIR/res/"
 
 # Copy PortMaster specific files
-cp PortMaster/VaixTerm.sh "$PACKAGE_DIR/"
-cp PortMaster/vaixterm.gptk "$PACKAGE_DIR/"
-chmod +x "$PACKAGE_DIR/VaixTerm.sh"
+chmod +x "$BUILD_DIR/VaixTerm.sh"
 
 # Create a zip file for distribution
 cd "$BUILD_DIR"
