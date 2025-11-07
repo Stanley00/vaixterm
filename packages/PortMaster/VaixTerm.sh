@@ -21,7 +21,7 @@ get_controls
 
 GAMEDIR=/$directory/ports/vaixterm
 CONFDIR="$GAMEDIR/conf/"
-BINARY=vaixterm
+BINARY=terminal
 
 > "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
 

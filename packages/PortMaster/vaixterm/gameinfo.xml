@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./VaixTerm.sh</path>
+    <name>VaixTerm Terminal Emulator</name>
+    <desc>A feature-rich terminal emulator for handheld devices. Includes on-screen keyboard and gamepad support.</desc>
+    <releasedate>2025-11-06</releasedate>
+    <developer>Stanley00</developer>
+    <publisher>Stanley00</publisher>
+    <genre>Tool</genre>
+    <image>./vaixterm/screenshot.png</image>
+  </game>
+</gameList>

@@ -1,0 +1,35 @@
+{
+  "version": 4,
+  "name": "vaixterm",
+  "items": [
+    "VaixTerm.sh",
+    "vaixterm"
+  ],
+  "items_opt": [],
+  "attr": {
+    "title": "VaixTerm",
+    "porter": [
+      "Stanley00"
+    ],
+    "desc": "VaixTerm: A Robust SDL2 Terminal for Handheld & Embedded Systems",
+    "desc_md": null,
+    "inst": "Launch from PortMaster. Follow credit screen on how to use.",
+    "inst_md": null,
+    "genres": [
+      "other"
+    ],
+    "image": null,
+    "rtr": true,
+    "exp": false,
+    "runtime": [],
+    "store": [],
+    "availability": "full",
+    "reqs": [
+      "hires"
+    ],
+    "arch": [
+      "aarch64"
+    ],
+    "min_glibc": ""
+  }
+}
