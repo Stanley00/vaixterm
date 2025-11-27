@@ -126,6 +126,18 @@ int main(int argc, char* argv[])
         return 1;
     }
     
+    // Update PTY window size with correct terminal dimensions
+    // This ensures the shell knows the correct terminal width/height
+    struct winsize ws = {
+        .ws_row = (unsigned short)term->rows,
+        .ws_col = (unsigned short)term->cols,
+        .ws_xpixel = (unsigned short)config->win_w,
+        .ws_ypixel = (unsigned short)config->win_h
+    };
+    if (ioctl(master_fd, TIOCSWINSZ, &ws) == -1) {
+        error_log_errno("Failed to update PTY window size");
+    }
+    
     // Start text input
     SDL_StartTextInput();
     

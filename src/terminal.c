@@ -684,9 +684,22 @@ void terminal_put_char(Terminal* term, uint32_t c)
     }
 
     // Handle wrap_pending: if cursor was at EOL, wrap now on next printable char
-    if (term->wrap_pending && term->autowrap_mode) {
-        term->cursor_x = 0;
-        terminal_newline(term);
+    if (term->wrap_pending) {
+        if (term->autowrap_mode) {
+            // Mark current line as dirty before wrapping
+            if (term->cursor_y >= 0 && term->cursor_y < term->rows) {
+                terminal_mark_line_dirty(term, term->cursor_y);
+            }
+            term->cursor_x = 0;
+            terminal_newline(term);
+            // Mark new line as dirty after wrapping
+            if (term->cursor_y >= 0 && term->cursor_y < term->rows) {
+                terminal_mark_line_dirty(term, term->cursor_y);
+            }
+        } else {
+            // Autowrap disabled: overwrite at current position (last column)
+            // Don't move cursor, just clear wrap_pending
+        }
         term->wrap_pending = false;
     }
 
@@ -728,12 +741,9 @@ void terminal_put_char(Terminal* term, uint32_t c)
     int new_x = term->cursor_x + char_width;
     if (new_x < term->cols) {
         term->cursor_x = new_x;
-    } else if (new_x == term->cols) {
-        // Cursor is at last column; set wrap_pending for next character
-        term->cursor_x = term->cols - 1;
-        term->wrap_pending = true;
     } else {
-        // Wide character would overflow; wrap it
+        // Character reached or would overflow EOL; set wrap_pending for next character
+        // Keep cursor at last column position for display purposes
         term->cursor_x = term->cols - 1;
         term->wrap_pending = true;
     }
@@ -1385,16 +1395,22 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                     break;
                 case '\r':
                     term->cursor_x = 0;
+                    term->wrap_pending = false;  // Clear wrap_pending on carriage return
+                    terminal_mark_line_dirty(term, term->cursor_y);
                     break;
                 case '\b':
                     term->cursor_x = SDL_max(0, term->cursor_x - 1);
+                    term->wrap_pending = false;  // Clear wrap_pending when cursor moves back
+                    terminal_mark_line_dirty(term, term->cursor_y);
                     break;
                 case '\t':
+                    term->wrap_pending = false;  // Clear wrap_pending before tab
                     term->cursor_x = (term->cursor_x + 8) & ~7;
                     if (term->cursor_x >= term->cols) {
                         term->cursor_x = 0;
                         terminal_newline(term);
                     }
+                    terminal_mark_line_dirty(term, term->cursor_y);
                     break;
                 default:
                     if (c >= ' ') {

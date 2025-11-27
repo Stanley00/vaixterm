@@ -537,14 +537,12 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
         }
 
         // Handle rendering
-        if (needs_render || (current_time - term->last_render_time) >= 33) { // Cap at ~30 FPS
+        // Render more frequently when there are dirty regions, less frequently when idle
+        Uint32 render_interval = (term->has_dirty_regions || needs_render) ? 8 : 33;  // 120 FPS when dirty, 30 FPS when idle
+        if (needs_render || (current_time - term->last_render_time) >= render_interval) {
             Uint32 render_start = SDL_GetTicks();
             
-            // Clear the screen
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            SDL_RenderClear(renderer);
-            
-            // Render the terminal content
+            // Render the terminal content (no need to clear, terminal_render handles it)
             terminal_render(renderer, term, *font, *char_w, *char_h, osk, 
                           needs_render || config->force_full_render, 
                           config->win_w, config->win_h);
@@ -561,10 +559,11 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
             needs_render = false;
         }
 
-        // Frame rate limiting - cap at 60 FPS
+        // Frame rate limiting - adaptive based on dirty regions
         Uint32 frame_time = SDL_GetTicks() - frame_start;
-        if (frame_time < 16) {  // ~60 FPS
-            SDL_Delay(16 - frame_time);
+        Uint32 target_frame_time = (term->has_dirty_regions || needs_render) ? 8 : 16;  // 120 FPS when dirty, 60 FPS when idle
+        if (frame_time < target_frame_time) {
+            SDL_Delay(target_frame_time - frame_time);
         }
     }
 }
