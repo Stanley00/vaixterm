@@ -637,9 +637,18 @@ static uint32_t map_char_for_charset(char c, char charset)
 
 /**
  * @brief Puts a character at the current cursor position, handling autowrap and insert mode.
+ * 
+ * The input c is expected to be a complete UTF-8 decoded codepoint.
+ * Charset mapping (G0/G1) only applies to ASCII (0x00-0x7F) range.
+ * Control characters (0x00-0x1F, 0x7F) are not rendered.
  */
 void terminal_put_char(Terminal* term, uint32_t c)
 {
+    // Reject control characters and invalid codepoints
+    if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c > 0x10FFFF) {
+        return;
+    }
+
     if (term->autowrap_mode && term->cursor_x >= term->cols) {
         term->cursor_x = 0;
         terminal_newline(term);
@@ -654,7 +663,12 @@ void terminal_put_char(Terminal* term, uint32_t c)
         write_x = term->cols - 1;
     }
 
-    uint32_t mapped_char = (c < 128) ? map_char_for_charset((char)c, term->charsets[term->active_charset]) : c;
+    // Apply charset mapping only to ASCII printable range (0x20-0x7E)
+    // This maps G0/G1 character sets (e.g., DEC Special Graphics)
+    uint32_t mapped_char = c;
+    if (c >= 0x20 && c <= 0x7E) {
+        mapped_char = map_char_for_charset((char)c, term->charsets[term->active_charset]);
+    }
 
     Glyph* line_ptr = get_line(term, term->cursor_y);
     if (line_ptr) {
