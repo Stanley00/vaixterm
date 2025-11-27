@@ -37,6 +37,7 @@ typedef struct {
     SDL_Color fg; // Foreground color
     SDL_Color bg; // Background color
     unsigned char attributes; // Bitfield for text attributes
+    unsigned char width; // Cell width: 0 (continuation), 1 (normal), 2 (wide)
 } Glyph;
 
 // Attribute flags for Glyph.attributes

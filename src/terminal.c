@@ -8,12 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h> // For isprint
+#include <wchar.h> // For wcwidth
 
 // --- Internal Helper Prototypes ---
 static inline Glyph* get_line(Terminal* term, int y);
 static uint32_t map_char_for_charset(char c, char charset);
 static int sgr_parse_extended_color(Terminal* term, int start_idx, bool is_fg);
 static void parse_color_string(const char* hex_str, SDL_Color* color);
+static int get_char_width(uint32_t codepoint);
 
 // --- Colorscheme Loading ---
 
@@ -244,7 +246,7 @@ void terminal_reset(Terminal* term)
 
     for (int i = 0; i < term->cols * term->total_lines; ++i) {
         term->grid[i] = (Glyph) {
-            ' ', term->default_fg, term->default_bg, 0
+            ' ', term->default_fg, term->default_bg, 0, 1
         };
     }
     for (int i = 0; i < term->rows; ++i) {
@@ -344,7 +346,7 @@ void terminal_clear_line_to_cursor(Terminal* term, int y, int end_x)
     }
     for (int x = 0; x <= end_x && x < term->cols; ++x) {
         line_ptr[x] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
         };
     }
     terminal_mark_line_dirty(term, y);
@@ -358,7 +360,7 @@ void terminal_clear_line(Terminal* term, int y, int start_x)
     }
     for (int x = start_x; x < term->cols; ++x) {
         line_ptr[x] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
         };
     }
     terminal_mark_line_dirty(term, y);
@@ -474,7 +476,7 @@ void terminal_insert_chars(Terminal* term, int n)
     }
     for (int i = 0; i < n; ++i) {
         line[x + i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -501,7 +503,7 @@ void terminal_delete_chars(Terminal* term, int n)
     }
     for (int i = term->cols - n; i < term->cols; ++i) {
         line[i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -524,7 +526,7 @@ void terminal_erase_chars(Terminal* term, int n)
     n = SDL_min(n, term->cols - x);
     for (int i = 0; i < n; ++i) {
         line[x + i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -559,6 +561,24 @@ void terminal_scroll_up(Terminal* term)
         terminal_mark_lines_dirty(term, 0, term->rows - 1);
         terminal_clear_line(term, term->rows - 1, 0);
     }
+}
+
+/**
+ * @brief Gets the display width of a character in cells.
+ * @param codepoint The Unicode codepoint.
+ * @return 0 for zero-width, 1 for normal width, 2 for double-width.
+ */
+static int get_char_width(uint32_t codepoint)
+{
+    // wcwidth returns -1 for control characters, 0 for zero-width, 1 for normal, 2 for wide
+    int w = wcwidth((wchar_t)codepoint);
+    if (w < 0) {
+        return 0; // Control characters are zero-width
+    }
+    if (w > 2) {
+        return 2; // Clamp to max 2
+    }
+    return w;
 }
 
 /**
@@ -651,6 +671,10 @@ static uint32_t map_char_for_charset(char c, char charset)
  * 
  * Autowrap behavior: When cursor reaches EOL, wrap_pending is set. On the next
  * printable character, the cursor wraps to the next line.
+ * 
+ * Wide character handling: Double-width characters occupy 2 cells. The first cell
+ * stores the character with width=2, and the second cell is marked as a continuation
+ * with width=0.
  */
 void terminal_put_char(Terminal* term, uint32_t c)
 {
@@ -682,19 +706,35 @@ void terminal_put_char(Terminal* term, uint32_t c)
         mapped_char = map_char_for_charset((char)c, term->charsets[term->active_charset]);
     }
 
+    // Get character width
+    int char_width = get_char_width(mapped_char);
+    
     Glyph* line_ptr = get_line(term, term->cursor_y);
     if (line_ptr) {
         line_ptr[write_x] = (Glyph) {
-            mapped_char, term->current_fg, term->current_bg, term->current_attributes
+            mapped_char, term->current_fg, term->current_bg, term->current_attributes, (unsigned char)char_width
         };
+        
+        // For wide characters, mark the next cell as a continuation
+        if (char_width == 2 && write_x + 1 < term->cols) {
+            line_ptr[write_x + 1] = (Glyph) {
+                0, term->current_fg, term->current_bg, term->current_attributes, 0
+            };
+        }
     }
     term->dirty_lines[term->cursor_y] = true;
     
-    // Advance cursor and set wrap_pending if at EOL
-    if (term->cursor_x < term->cols - 1) {
-        term->cursor_x++;
-    } else {
+    // Advance cursor by character width and set wrap_pending if at EOL
+    int new_x = term->cursor_x + char_width;
+    if (new_x < term->cols) {
+        term->cursor_x = new_x;
+    } else if (new_x == term->cols) {
         // Cursor is at last column; set wrap_pending for next character
+        term->cursor_x = term->cols - 1;
+        term->wrap_pending = true;
+    } else {
+        // Wide character would overflow; wrap it
+        term->cursor_x = term->cols - 1;
         term->wrap_pending = true;
     }
 }
@@ -770,7 +810,7 @@ static void csi_h_private(Terminal* term)
                     for (int y = 0; y < term->rows; ++y) {
                         for (int x = 0; x < term->cols; ++x) {
                             term->alt_grid[y * term->cols + x] = (Glyph) {
-                                ' ', term->default_fg, term->default_bg, 0
+                                ' ', term->default_fg, term->default_bg, 0, 1
                             };
                         }
                     }
@@ -1413,7 +1453,7 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                             Glyph* line_ptr = get_line(term, y);
                             if (line_ptr) {
                                 line_ptr[x] = (Glyph) {
-                                    'E', term->default_fg, term->default_bg, 0
+                                    'E', term->default_fg, term->default_bg, 0, 1
                                 };
                             }
                         }
