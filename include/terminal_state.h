@@ -153,6 +153,7 @@ typedef struct {
     bool application_keypad_mode;      // DECNKM: Numeric Keypad Mode
     bool alt_screen_active;            // True if alternate screen is active
     bool autowrap_mode;                // DECAWM: Autowrap mode (CSI ? 7 h/l)
+    bool wrap_pending;                 // True if cursor is at EOL and next char should wrap
     bool insert_mode;                  // IRM: Insert/Replace Mode (CSI 4 h/l)
     bool origin_mode;                  // DECOM: Origin Mode (CSI ? 6 h/l)
 

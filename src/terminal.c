@@ -227,6 +227,7 @@ void terminal_reset(Terminal* term)
     term->cursor_style = CURSOR_STYLE_BLOCK;
     term->cursor_style_blinking = true;
     term->insert_mode = false;
+    term->wrap_pending = false;
     term->cursor_blink_on = true;
     term->origin_mode = false;
 
@@ -647,6 +648,9 @@ static uint32_t map_char_for_charset(char c, char charset)
  * The input c is expected to be a complete UTF-8 decoded codepoint.
  * Charset mapping (G0/G1) only applies to ASCII (0x00-0x7F) range.
  * Control characters (0x00-0x1F, 0x7F) are not rendered.
+ * 
+ * Autowrap behavior: When cursor reaches EOL, wrap_pending is set. On the next
+ * printable character, the cursor wraps to the next line.
  */
 void terminal_put_char(Terminal* term, uint32_t c)
 {
@@ -655,9 +659,11 @@ void terminal_put_char(Terminal* term, uint32_t c)
         return;
     }
 
-    if (term->autowrap_mode && term->cursor_x >= term->cols) {
+    // Handle wrap_pending: if cursor was at EOL, wrap now on next printable char
+    if (term->wrap_pending && term->autowrap_mode) {
         term->cursor_x = 0;
         terminal_newline(term);
+        term->wrap_pending = false;
     }
 
     if (term->insert_mode) {
@@ -683,8 +689,13 @@ void terminal_put_char(Terminal* term, uint32_t c)
         };
     }
     term->dirty_lines[term->cursor_y] = true;
-    if (term->cursor_x < term->cols) {
+    
+    // Advance cursor and set wrap_pending if at EOL
+    if (term->cursor_x < term->cols - 1) {
         term->cursor_x++;
+    } else {
+        // Cursor is at last column; set wrap_pending for next character
+        term->wrap_pending = true;
     }
 }
 
@@ -826,18 +837,21 @@ static void csi_A(Terminal* term)   // Cursor Up
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_max(term->scroll_top, term->cursor_y - p1);
+    term->wrap_pending = false;
 }
 
 static void csi_B(Terminal* term)   // Cursor Down
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_min(term->scroll_bottom, term->cursor_y + p1);
+    term->wrap_pending = false;
 }
 
 static void csi_C(Terminal* term)   // Cursor Forward
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x + p1);
+    term->wrap_pending = false;
 }
 
 static void csi_D(Terminal* term)   // Cursor Back
@@ -845,6 +859,7 @@ static void csi_D(Terminal* term)   // Cursor Back
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_x = SDL_max(0, term->cursor_x - p1);
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x);
+    term->wrap_pending = false;
 }
 
 static void csi_G(Terminal* term)   // Cursor Horizontal Absolute
@@ -853,6 +868,7 @@ static void csi_G(Terminal* term)   // Cursor Horizontal Absolute
     term->cursor_x = SDL_min(term->cols, p1 - 1);
     term->cursor_x = SDL_max(0, term->cursor_x);
     term->cursor_x = SDL_min(term->cols - 1, term->cursor_x);
+    term->wrap_pending = false;
 }
 
 static void csi_d(Terminal* term)   // Vertical Line Position Absolute
@@ -860,6 +876,7 @@ static void csi_d(Terminal* term)   // Vertical Line Position Absolute
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
     term->cursor_y = SDL_min(term->rows - 1, p1 - 1);
     term->cursor_y = SDL_max(0, term->cursor_y);
+    term->wrap_pending = false;
 }
 
 static void csi_H(Terminal* term)   // Cursor Position
@@ -884,6 +901,7 @@ static void csi_H(Terminal* term)   // Cursor Position
         term->cursor_y = SDL_max(0, SDL_min(term->rows - 1, term->cursor_y));
         term->cursor_x = SDL_max(0, SDL_min(term->cols - 1, term->cursor_x));
     }
+    term->wrap_pending = false;
 }
 
 static void csi_J(Terminal* term)   // Erase in Display
