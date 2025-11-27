@@ -210,8 +210,8 @@ void terminal_reset(Terminal* term)
 
     term->saved_cursor_x = 0;
     term->saved_cursor_y = 0;
-    term->scroll_top = 1;
-    term->scroll_bottom = term->rows;
+    term->scroll_top = 0;
+    term->scroll_bottom = term->rows - 1;
 
     term->parse_state = STATE_NORMAL;
     term->csi_param_count = 0;
@@ -532,12 +532,12 @@ void terminal_erase_chars(Terminal* term, int n)
 void terminal_newline(Terminal* term)
 {
     term->cursor_y++;
-    if (term->cursor_y >= term->scroll_bottom) {
-        term->cursor_y = term->scroll_bottom - 1;
-        if (term->scroll_top == 1 && term->scroll_bottom == term->rows) {
+    if (term->cursor_y > term->scroll_bottom) {
+        term->cursor_y = term->scroll_bottom;
+        if (term->scroll_top == 0 && term->scroll_bottom == term->rows - 1) {
             terminal_scroll_up(term);
         } else {
-            terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, 1);
+            terminal_scroll_region(term, term->scroll_top, term->scroll_bottom, 1);
         }
     }
 }
@@ -720,7 +720,7 @@ static void csi_h_private(Terminal* term)
         if (term->csi_params[i] == 6) {
             term->origin_mode = true;
             term->cursor_x = 0;
-            term->cursor_y = term->scroll_top - 1;
+            term->cursor_y = term->scroll_top;
         }
         if (term->csi_params[i] == 7) {
             term->autowrap_mode = true;
@@ -825,13 +825,13 @@ static void csi_l_private(Terminal* term)
 static void csi_A(Terminal* term)   // Cursor Up
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    term->cursor_y = SDL_max(term->scroll_top - 1, term->cursor_y - p1);
+    term->cursor_y = SDL_max(term->scroll_top, term->cursor_y - p1);
 }
 
 static void csi_B(Terminal* term)   // Cursor Down
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    term->cursor_y = SDL_min(term->scroll_bottom - 1, term->cursor_y + p1);
+    term->cursor_y = SDL_min(term->scroll_bottom, term->cursor_y + p1);
 }
 
 static void csi_C(Terminal* term)   // Cursor Forward
@@ -874,9 +874,9 @@ static void csi_H(Terminal* term)   // Cursor Position
     }
 
     if (term->origin_mode) {
-        term->cursor_y = (p1 - 1) + (term->scroll_top - 1);
+        term->cursor_y = (p1 - 1) + term->scroll_top;
         term->cursor_x = p2 - 1;
-        term->cursor_y = SDL_max(term->scroll_top - 1, SDL_min(term->scroll_bottom - 1, term->cursor_y));
+        term->cursor_y = SDL_max(term->scroll_top, SDL_min(term->scroll_bottom, term->cursor_y));
         term->cursor_x = SDL_max(0, SDL_min(term->cols - 1, term->cursor_x));
     } else {
         term->cursor_y = p1 - 1;
@@ -996,9 +996,10 @@ static void csi_r(Terminal* term)   // Set Scrolling Region
     int top = (term->csi_param_count > 0 && term->csi_params[0] > 0) ? term->csi_params[0] : 1;
     int bottom = (term->csi_param_count > 1 && term->csi_params[1] > 0) ? term->csi_params[1] : term->rows;
 
-    if (top < bottom && bottom <= term->rows) {
-        term->scroll_top = top;
-        term->scroll_bottom = bottom;
+    // Convert from 1-based (VT100 spec) to 0-based internal representation
+    if (top >= 1 && bottom >= top && bottom <= term->rows) {
+        term->scroll_top = top - 1;
+        term->scroll_bottom = bottom - 1;
         term->cursor_x = 0;
         term->cursor_y = 0;
     }
@@ -1013,16 +1014,16 @@ static void csi_at(Terminal* term)   // Insert Characters
 static void csi_L(Terminal* term)   // Insert Lines
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    if (term->cursor_y >= (term->scroll_top - 1) && term->cursor_y < term->scroll_bottom) {
-        terminal_scroll_region(term, term->cursor_y, term->scroll_bottom - 1, -p1);
+    if (term->cursor_y >= term->scroll_top && term->cursor_y <= term->scroll_bottom) {
+        terminal_scroll_region(term, term->cursor_y, term->scroll_bottom, -p1);
     }
 }
 
 static void csi_M(Terminal* term)   // Delete Lines
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    if (term->cursor_y >= (term->scroll_top - 1) && term->cursor_y < term->scroll_bottom) {
-        terminal_scroll_region(term, term->cursor_y, term->scroll_bottom - 1, p1);
+    if (term->cursor_y >= term->scroll_top && term->cursor_y <= term->scroll_bottom) {
+        terminal_scroll_region(term, term->cursor_y, term->scroll_bottom, p1);
     }
 }
 
@@ -1035,13 +1036,13 @@ static void csi_P(Terminal* term)   // Delete Characters
 static void csi_S(Terminal* term)   // Scroll Up
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, p1);
+    terminal_scroll_region(term, term->scroll_top, term->scroll_bottom, p1);
 }
 
 static void csi_T(Terminal* term)   // Scroll Down
 {
     int p1 = (term->csi_params[0] == 0) ? 1 : term->csi_params[0];
-    terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, -p1);
+    terminal_scroll_region(term, term->scroll_top, term->scroll_bottom, -p1);
 }
 
 static void csi_X(Terminal* term)   // Erase Characters
@@ -1417,9 +1418,9 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                 term->parse_state = STATE_NORMAL;
             } else if (c == 'M') {
                 term->cursor_y--;
-                if (term->cursor_y < (term->scroll_top - 1)) {
-                    term->cursor_y = term->scroll_top - 1;
-                    terminal_scroll_region(term, term->scroll_top - 1, term->scroll_bottom - 1, -1);
+                if (term->cursor_y < term->scroll_top) {
+                    term->cursor_y = term->scroll_top;
+                    terminal_scroll_region(term, term->scroll_top, term->scroll_bottom, -1);
                 }
                 term->parse_state = STATE_NORMAL;
             } else if (c == '=') {

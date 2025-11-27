@@ -141,9 +141,9 @@ typedef struct {
     int saved_cursor_x;
     int saved_cursor_y;
 
-    // Scrolling region
-    int scroll_top;    // 1-based top line of the scroll region
-    int scroll_bottom; // 1-based bottom line of the scroll region
+    // Scrolling region (0-based inclusive indices)
+    int scroll_top;    // 0-based top line of the scroll region
+    int scroll_bottom; // 0-based bottom line of the scroll region (inclusive)
 
     // Terminal modes
     CursorStyle cursor_style;
