@@ -113,6 +113,7 @@ typedef struct {
     unsigned char current_attributes; // Current attributes for new characters
     Glyph *grid;
     Glyph *alt_grid; // The alternate screen buffer
+    Glyph *normal_grid_saved; // Saved normal grid for DECSET 1049 restore
 
     // Scrollback additions
     int scrollback;      // Number of lines in scrollback buffer

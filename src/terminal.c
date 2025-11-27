@@ -143,6 +143,7 @@ Terminal* terminal_create(int cols, int rows, const Config* config, SDL_Renderer
     term->cursor_visible = true;
     term->application_keypad_mode = false;
     term->alt_grid = NULL;
+    term->normal_grid_saved = NULL;
     term->alt_screen_active = false;
     term->insert_mode = false;
     term->cursor_style = CURSOR_STYLE_BLOCK;
@@ -192,6 +193,7 @@ void terminal_destroy(Terminal* term)
         }
         free(term->grid);
         free(term->alt_grid);
+        free(term->normal_grid_saved);
         free(term->dirty_lines);
         free(term);
     }
@@ -263,22 +265,26 @@ void terminal_resize(Terminal* term, int new_cols, int new_rows)
     Glyph* new_grid = malloc(sizeof(Glyph) * (size_t)new_cols * new_total_lines);
     bool* new_dirty_lines = malloc(sizeof(bool) * (size_t)new_rows);
     Glyph* new_alt_grid = term->alt_grid ? malloc(sizeof(Glyph) * (size_t)new_cols * (size_t)new_rows) : NULL;
+    Glyph* new_normal_grid_saved = term->normal_grid_saved ? malloc(sizeof(Glyph) * (size_t)new_cols * new_total_lines) : NULL;
 
-    if (!new_grid || !new_dirty_lines || (term->alt_grid && !new_alt_grid)) {
+    if (!new_grid || !new_dirty_lines || (term->alt_grid && !new_alt_grid) || (term->normal_grid_saved && !new_normal_grid_saved)) {
         fprintf(stderr, "Failed to allocate memory for terminal resize. Aborting resize.\n");
         free(new_grid);
         free(new_dirty_lines);
         free(new_alt_grid);
+        free(new_normal_grid_saved);
         return;
     }
 
     free(term->grid);
     free(term->dirty_lines);
     free(term->alt_grid);
+    free(term->normal_grid_saved);
 
     term->grid = new_grid;
     term->dirty_lines = new_dirty_lines;
     term->alt_grid = new_alt_grid;
+    term->normal_grid_saved = new_normal_grid_saved;
     term->cols = new_cols;
     term->rows = new_rows;
     term->total_lines = (int)new_total_lines;
@@ -728,18 +734,42 @@ static void csi_h_private(Terminal* term)
 
         if (term->csi_params[i] == 1049) {
             if (!term->alt_screen_active) {
+                // Allocate alt grid if needed
                 if (!term->alt_grid) {
                     term->alt_grid = malloc(sizeof(Glyph) * (size_t)term->cols * (size_t)term->rows);
                 }
-                if (term->alt_grid) {
+                // Allocate saved normal grid if needed
+                if (!term->normal_grid_saved) {
+                    term->normal_grid_saved = malloc(sizeof(Glyph) * (size_t)term->cols * (size_t)term->total_lines);
+                }
+                
+                if (term->alt_grid && term->normal_grid_saved) {
+                    // Save cursor position
                     term->normal_saved_cursor_x = term->cursor_x;
                     term->normal_saved_cursor_y = term->cursor_y;
+                    
+                    // Save entire normal grid (including scrollback)
+                    memcpy(term->normal_grid_saved, term->grid, 
+                           sizeof(Glyph) * (size_t)term->cols * (size_t)term->total_lines);
+                    
+                    // Switch to alt screen
                     term->alt_screen_active = true;
-                    terminal_clear_visible_screen(term);
+                    
+                    // Clear alt grid
+                    for (int y = 0; y < term->rows; ++y) {
+                        for (int x = 0; x < term->cols; ++x) {
+                            term->alt_grid[y * term->cols + x] = (Glyph) {
+                                ' ', term->default_fg, term->default_bg, 0
+                            };
+                        }
+                    }
+                    
+                    // Reset cursor to top-left
                     term->cursor_x = 0;
                     term->cursor_y = 0;
+                    term->full_redraw_needed = true;
                 } else {
-                    fprintf(stderr, "Failed to allocate alternate screen buffer\n");
+                    fprintf(stderr, "Failed to allocate alternate screen or saved grid buffer\n");
                 }
             }
         }
@@ -769,10 +799,22 @@ static void csi_l_private(Terminal* term)
 
         if (term->csi_params[i] == 1049) {
             if (term->alt_screen_active) {
+                // Restore normal grid from saved state
+                if (term->normal_grid_saved) {
+                    memcpy(term->grid, term->normal_grid_saved,
+                           sizeof(Glyph) * (size_t)term->cols * (size_t)term->total_lines);
+                }
+                
+                // Switch back to normal screen
                 term->alt_screen_active = false;
+                
+                // Restore cursor position
                 term->cursor_x = term->normal_saved_cursor_x;
                 term->cursor_y = term->normal_saved_cursor_y;
+                
+                // Mark full redraw needed
                 term->full_redraw_needed = true;
+                terminal_mark_lines_dirty(term, 0, term->rows - 1);
             }
         }
     }
