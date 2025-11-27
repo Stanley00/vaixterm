@@ -1431,7 +1431,8 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
             } else if (c == '(' || c == ')') {
                 if (i + 1 < len) {
                     char charset_id = buf[i + 1];
-                    if (charset_id == 'B' || charset_id == '0') {
+                    // Support common character sets: B (ASCII), 0 (DEC Special Graphics), A (UK), U (null)
+                    if (charset_id == 'B' || charset_id == '0' || charset_id == 'A' || charset_id == 'U') {
                         int charset_idx = (c == ')') ? 1 : 0;
                         term->charsets[charset_idx] = charset_id;
                     }
