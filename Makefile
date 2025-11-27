@@ -24,6 +24,7 @@ NATIVE_CFLAGS = -Wall -Wextra -O2 \
                 -ffunction-sections -fdata-sections \
                 -fno-asynchronous-unwind-tables \
                 `sdl2-config --cflags` -Isrc -Iinclude -DDEBUG=$(DEBUG) -DNDEBUG=1 \
+                -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 \
                 -fvisibility=hidden -fno-stack-check
 
 # OS-specific flags
