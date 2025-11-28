@@ -37,6 +37,7 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len);
 void terminal_load_colorscheme(Terminal* term, const char* path);
 void handle_csi(Terminal* term, char command);
 void handle_osc(Terminal* term);
-void sgr_to_color(Terminal* term);
+void process_sgr_parameters(Terminal* term);
+void sgr_to_color(Terminal* term, int color_index, SDL_Color* color);
 
 #endif // TERMINAL_H

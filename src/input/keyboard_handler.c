@@ -228,37 +228,6 @@ bool process_keyboard_input(const SDL_KeyboardEvent* key, int pty_fd, Terminal* 
     return true;
 }
 
-ValidationResult validate_utf8_string(const char* str, const char* param_name, size_t max_length)
-{
-    if (!str) {
-        ERROR_LOG("Invalid parameter: str=%p", (void*)str);
-        return VALIDATION_ERROR_NULL_POINTER;
-    }
-
-    if (max_length > 0 && strlen(str) > max_length) {
-        ERROR_LOG("Parameter '%s' exceeds maximum length %zu", param_name ? param_name : "unknown", max_length);
-        return VALIDATION_ERROR_INVALID_SIZE;
-    }
-
-    while (*str) {
-        int char_len = utf8_char_len(str);
-        if (char_len == 0) {
-            return VALIDATION_ERROR_INVALID_UTF8; // Invalid UTF-8
-        }
-
-        // Check that we have enough bytes for this character
-        for (int i = 1; i < char_len; i++) {
-            if ((str[i] & 0xC0) != 0x80) {
-                return VALIDATION_ERROR_INVALID_UTF8; // Invalid continuation byte
-            }
-        }
-
-        str += char_len;
-    }
-
-    return VALIDATION_SUCCESS;
-}
-
 int sdl_key_to_terminal_sequence(SDL_Keycode sym, SDL_Keymod mod, const Terminal* term, 
                                  char* output, int output_size)
 {

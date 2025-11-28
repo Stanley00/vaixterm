@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h> // For isprint
 #include <wchar.h> // For wcwidth
+#include <ctype.h> // For isprint
 
 // --- Internal Helper Prototypes ---
 static inline Glyph* get_line(Terminal* term, int y);
@@ -1009,7 +1009,7 @@ static void csi_m(Terminal* term)   // Select Graphic Rendition
         term->current_bg = term->default_bg;
         term->current_attributes = 0;
     } else {
-        sgr_to_color(term);
+        process_sgr_parameters(term);
     }
 }
 
@@ -1197,7 +1197,7 @@ static int sgr_parse_extended_color(Terminal* term, int start_idx, bool is_fg)
     return 0;
 }
 
-void sgr_to_color(Terminal* term)
+void process_sgr_parameters(Terminal* term)
 {
     for (int i = 0; i < term->csi_param_count; ++i) {
         int code = term->csi_params[i];
@@ -1584,5 +1584,34 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
             }
             break;
         }
+    }
+}
+
+void sgr_to_color(Terminal* term, int color_index, SDL_Color* color)
+{
+    if (!term || !color || color_index < 0) {
+        return;
+    }
+
+    if (color_index < 16) {
+        // Standard ANSI colors (0-15)
+        *color = term->palette[color_index];
+    } else if (color_index >= 16 && color_index <= 255) {
+        // 256-color mode
+        if (color_index >= 16 && color_index <= 231) {
+            // 216 colors (6x6x6 cube)
+            color_index -= 16;
+            int r = (color_index / 36) * 51;
+            int g = ((color_index % 36) / 6) * 51;
+            int b = (color_index % 6) * 51;
+            *color = (SDL_Color){r, g, b, 255};
+        } else {
+            // Grayscale colors (232-255)
+            int gray = (color_index - 232) * 10 + 8;
+            *color = (SDL_Color){gray, gray, gray, 255};
+        }
+    } else {
+        // Default to white for unknown colors
+        *color = (SDL_Color){255, 255, 255, 255};
     }
 }
