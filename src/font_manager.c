@@ -9,8 +9,9 @@
 
 #include "font_manager.h"
 #include "terminal.h"
-#include "osk.h"
-#include "cache_manager.h"
+#include "osk_core.h"
+#include "osk_renderer.h"
+#include "glyph_cache.h"
 
 /**
  * @brief Changes the font size and updates all related components.
@@ -46,8 +47,10 @@ bool font_change_size(TTF_Font** font, Config* config, Terminal* term, OnScreenK
     int new_rows = config->win_h / *char_h;
     terminal_resize(term, new_cols, new_rows);
 
-    glyph_cache_destroy(term->glyph_cache);
-    term->glyph_cache = glyph_cache_create();
+    if (term->glyph_cache) {
+        glyph_cache_cleanup(term->glyph_cache);
+        glyph_cache_init(term->glyph_cache, GLYPH_CACHE_SIZE);
+    }
     osk_key_cache_destroy(osk->key_cache);
     osk->key_cache = osk_key_cache_create();
     osk->cached_set_idx = -1;

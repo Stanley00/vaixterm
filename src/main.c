@@ -24,7 +24,7 @@
 #include "terminal_state.h"
 #include "app_lifecycle.h"
 #include "config_manager.h"
-#include "error_handler.h"
+#include "error_handling.h"
 
 /**
  * @brief Sets up the PTY and returns the master file descriptor and child PID.
@@ -37,7 +37,7 @@ static bool setup_pty(const Config* config, int* master_fd, pid_t* pid)
     *pid = forkpty(master_fd, NULL, NULL, NULL);
     
     if (*pid < 0) {
-        error_log_errno("forkpty failed");
+        REPORT_SDL_ERROR("forkpty failed");
         return false;
     } else if (*pid == 0) {
         // Child process
@@ -54,7 +54,7 @@ static bool setup_pty(const Config* config, int* master_fd, pid_t* pid)
     };
     
     if (ioctl(*master_fd, TIOCSWINSZ, &ws) == -1) {
-        error_log_errno("ioctl(TIOCSWINSZ) failed");
+        REPORT_SDL_ERROR("ioctl(TIOCSWINSZ) failed");
     }
     
     fcntl(*master_fd, F_SETFL, O_NONBLOCK);
@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
     
     // Validate configuration
     if (!config_validate(&config)) {
-        error_log("Configuration validation failed, using corrected values");
+        REPORT_ERROR(ERR_INVALID_ARGUMENT, ERROR_SEVERITY_ERROR, "Configuration validation failed, using corrected values");
     }
     
     // Initialize SDL and create window/renderer
@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
     int char_w, char_h;
     
     if (!app_init_sdl(&win, &renderer, &font, &config, &char_w, &char_h)) {
-        error_log("Failed to initialize SDL");
+        REPORT_ERROR(ERR_SDL, ERROR_SEVERITY_ERROR, "Failed to initialize SDL");
         config_cleanup(&config);
         return 1;
     }
@@ -98,7 +98,7 @@ int main(int argc, char* argv[])
     pid_t pid = -1;
     
     if (!setup_pty(&config, &master_fd, &pid)) {
-        error_log("Failed to set up PTY");
+        REPORT_ERROR(ERR_PTY, ERROR_SEVERITY_ERROR, "Failed to set up PTY");
         app_cleanup_resources(&config, NULL, NULL, renderer, win, font, pid, master_fd);
         return 1;
     }
@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
     // Initialize OSK
     OnScreenKeyboard osk;
     if (!app_init_osk(&osk, &config)) {
-        error_log("Failed to initialize OSK");
+        REPORT_ERROR(ERR_NOT_IMPLEMENTED, ERROR_SEVERITY_ERROR, "Failed to initialize OSK");
         app_cleanup_resources(&config, NULL, &osk, renderer, win, font, pid, master_fd);
         return 1;
     }
@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
     // Initialize terminal
     Terminal* term = app_init_terminal(&config, renderer, char_w, char_h);
     if (!term) {
-        error_log("Failed to initialize terminal");
+        REPORT_ERROR(ERR_NOT_IMPLEMENTED, ERROR_SEVERITY_ERROR, "Failed to initialize terminal");
         app_cleanup_resources(&config, term, &osk, renderer, win, font, pid, master_fd);
         return 1;
     }
@@ -131,11 +131,11 @@ int main(int argc, char* argv[])
     struct winsize ws = {
         .ws_row = (unsigned short)term->rows,
         .ws_col = (unsigned short)term->cols,
-        .ws_xpixel = (unsigned short)config->win_w,
-        .ws_ypixel = (unsigned short)config->win_h
+        .ws_xpixel = (unsigned short)config.win_w,
+        .ws_ypixel = (unsigned short)config.win_h
     };
     if (ioctl(master_fd, TIOCSWINSZ, &ws) == -1) {
-        error_log_errno("Failed to update PTY window size");
+        REPORT_SDL_ERROR("Failed to update PTY window size");
     }
     
     // Start text input

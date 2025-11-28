@@ -13,8 +13,8 @@
 #include "event_handler.h"
 #include "terminal_state.h"
 #include "terminal.h"
-#include "osk.h"
-#include "input.h"
+#include "osk_core.h"
+#include "input_mapper.h"
 #include "config.h"
 #include "font_manager.h"
 

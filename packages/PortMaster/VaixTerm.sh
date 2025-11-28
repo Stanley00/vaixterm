@@ -49,7 +49,7 @@ cd $GAMEDIR
 
 #$GPTOKEYB "$BINARY" -c "./vaixterm.gptk" &
 echo $DISPLAY_WIDTH
-./$BINARY  -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT"
+./$BINARY  -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT" -b res/background.png
 
 $ESUDO kill -9 $(pidof gptokeyb)
 $ESUDO systemctl restart oga_events &

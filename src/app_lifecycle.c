@@ -14,6 +14,7 @@
 #include <sys/ioctl.h>
 #include <stdbool.h>
 #include <pwd.h>
+#include <sys/select.h>
 
 // PTY headers vary by OS
 #if defined(__linux__)
@@ -32,14 +33,16 @@
 #include "app_lifecycle.h"
 #include "terminal_state.h"
 #include "terminal.h"
-#include "rendering.h"
+#include "rendering_core.h"
 #include "event_handler.h"
 #include "font_manager.h"
 #include "config_manager.h"
-#include "error_handler.h"
+#include "error_handling.h"
 #include "dirty_region_tracker.h"
-#include "input.h"
-#include "osk.h"
+#include "input_mapper.h"
+#include "osk_core.h"
+#include "osk_renderer.h"
+#include "glyph_cache.h"
 #include "debug.h"
 
 /**
@@ -323,9 +326,18 @@ Terminal* app_init_terminal(const Config* config, SDL_Renderer* renderer, int ch
         return NULL;
     }
 
-    term->glyph_cache = glyph_cache_create();
+    // Allocate and initialize glyph cache
+    term->glyph_cache = malloc(sizeof(GlyphCache));
     if (!term->glyph_cache) {
-        fprintf(stderr, "Failed to create glyph cache.\n");
+        fprintf(stderr, "Failed to allocate glyph cache\n");
+        terminal_destroy(term);
+        return NULL;
+    }
+    
+    if (!glyph_cache_init(term->glyph_cache, GLYPH_CACHE_SIZE)) {
+        fprintf(stderr, "Failed to initialize glyph cache\n");
+        free(term->glyph_cache);
+        term->glyph_cache = NULL;
         terminal_destroy(term);
         return NULL;
     }
@@ -378,7 +390,9 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config)
         return false;
     }
 
-    osk_load_layout(osk, config->osk_layout_path);
+    if (config->osk_layout_path) {
+        osk_load_layout(osk, config->osk_layout_path);
+    }
     osk_init_all_sets(osk);
     init_input_devices(osk, config);
     
@@ -415,7 +429,7 @@ bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config*
 
         render_credit_screen(renderer, font, config->win_w, config->win_h);
         SDL_RenderPresent(renderer);
-        SDL_Delay(16);
+        SDL_Delay(100); // 500ms delay for better visibility
     }
     return true;
 }
@@ -537,8 +551,10 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
         }
 
         // Handle rendering
-        // Render more frequently when there are dirty regions, less frequently when idle
-        Uint32 render_interval = (term->has_dirty_regions || needs_render) ? 8 : 33;  // 120 FPS when dirty, 30 FPS when idle
+        // Use configured FPS instead of hardcoded values
+        Uint32 render_interval = (term->has_dirty_regions || needs_render) ? 
+            (1000 / config->target_fps) : 2000;  // Use target FPS when dirty, 0.5 FPS when idle
+        
         if (needs_render || (current_time - term->last_render_time) >= render_interval) {
             Uint32 render_start = SDL_GetTicks();
             
@@ -559,9 +575,9 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
             needs_render = false;
         }
 
-        // Frame rate limiting - adaptive based on dirty regions
+        // Frame rate limiting - use configured FPS
         Uint32 frame_time = SDL_GetTicks() - frame_start;
-        Uint32 target_frame_time = (term->has_dirty_regions || needs_render) ? 8 : 16;  // 120 FPS when dirty, 60 FPS when idle
+        Uint32 target_frame_time = 1000 / config->target_fps;  // Use target FPS
         if (frame_time < target_frame_time) {
             SDL_Delay(target_frame_time - frame_time);
         }
@@ -595,7 +611,7 @@ void app_cleanup_resources(const Config* config, Terminal* term, OnScreenKeyboar
     // Clean up terminal
     if (term) {
         if (term->glyph_cache) {
-            glyph_cache_destroy(term->glyph_cache);
+            glyph_cache_cleanup(term->glyph_cache);
         }
         if (term->screen_texture) {
             SDL_DestroyTexture(term->screen_texture);

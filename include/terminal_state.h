@@ -14,6 +14,9 @@
 
 #define MOUSE_WHEEL_SCROLL_AMOUNT 3
 
+// Terminal mode flags (for compatibility)
+#define MODE_APP_CURSOR_KEYS 0x0001  // Application cursor keys mode
+
 // Key sequences for handle_key_down
 #define KEY_SEQ_UP_NORMAL    "\x1b[A"
 #define KEY_SEQ_UP_APP       "\x1bOA"
@@ -38,6 +41,7 @@ typedef struct {
     SDL_Color bg; // Background color
     unsigned char attributes; // Bitfield for text attributes
     unsigned char width; // Cell width: 0 (continuation), 1 (normal), 2 (wide)
+    unsigned char attr;    // Extended attributes for compatibility
 } Glyph;
 
 // Attribute flags for Glyph.attributes
@@ -46,6 +50,12 @@ typedef struct {
 #define ATTR_UNDERLINE  (1 << 2)
 #define ATTR_INVERSE    (1 << 3)
 #define ATTR_BLINK      (1 << 4)
+
+// Extended attribute flags for Glyph.attr (compatibility)
+#define ATTR_COLOR_INDEX     (1 << 0)
+#define ATTR_DIM             (1 << 1)
+#define ATTR_BG_COLOR_INDEX  (1 << 2)
+#define ATTR_REVERSE         (1 << 3)
 
 // --- Glyph Cache ---
 #define GLYPH_CACHE_SIZE 8192 // Increased cache size for better performance
@@ -61,10 +71,13 @@ typedef struct {
     GlyphCacheEntry entries[GLYPH_CACHE_SIZE];
     uint32_t access_counter; // Global access counter for LRU
     uint32_t last_access[GLYPH_CACHE_SIZE]; // Last access time for each entry
+    int hits;    // Cache hit counter
+    int misses;  // Cache miss counter
 } GlyphCache;
 
 // --- OSK Key Cache ---
 #define OSK_KEY_CACHE_SIZE 512 // Ample space for all key states
+#define OSK_NUM_MODIFIERS 4 // Number of modifier types
 
 typedef enum {
     OSK_KEY_STATE_NORMAL,
@@ -157,6 +170,9 @@ typedef struct {
     bool wrap_pending;                 // True if cursor is at EOL and next char should wrap
     bool insert_mode;                  // IRM: Insert/Replace Mode (CSI 4 h/l)
     bool origin_mode;                  // DECOM: Origin Mode (CSI ? 6 h/l)
+    
+    // Compatibility mode field
+    int mode;                          // Bit field of mode flags for compatibility
 
     // VT100 Character Set Support
     // 'B' = US ASCII, '0' = DEC Special Graphics
@@ -189,6 +205,10 @@ typedef struct {
     int dirty_min_y;  // Minimum dirty line (-1 if none)
     int dirty_max_y;  // Maximum dirty line (-1 if none)
     bool has_dirty_regions;
+
+    // Color palette and background
+    SDL_Color palette[256];  // Color palette for indexed colors
+    char* background_path;  // Path to background image
 
     // Double buffering
     SDL_Texture* screen_texture;
@@ -240,10 +260,33 @@ typedef struct {
     char* name;          // Display name of the set (e.g., "ACTION", "NAV", "bash")
     SpecialKey* keys; // Array of SpecialKey structs
     int length;          // Number of keys in this set
+    int num_keys;        // Alternative field name for compatibility
     bool is_dynamic;     // True if this set was loaded from a file and needs to be freed
     char* file_path;     // Path to the .keys file if loaded dynamically
     int active_mod_mask; // Modifiers that are active for this layer
 } SpecialKeySet;
+
+// --- Special Keys for OSK ---
+typedef enum {
+    SK_STRING,      // For sending a literal string with no tokens
+    SK_SEQUENCE,    // A single key press with modifiers
+    SK_MACRO,       // A sequence of literal text and key presses, e.g., "echo foo{ENTER}"
+    SK_MOD_CTRL,
+    SK_MOD_ALT,
+    SK_MOD_SHIFT,
+    SK_MOD_GUI,
+    SK_INTERNAL_CMD, // For terminal-internal commands
+    SK_LOAD_FILE,    // Load a key set from a file (sequence field holds path)
+    SK_UNLOAD_FILE   // Unload a key set by name (sequence field holds name)
+} SpecialKeyType;
+
+// Layout parsing tokens
+typedef struct {
+    const char* token;
+    const char* display;
+    SpecialKeyType type;
+    SDL_Keycode keycode;
+} LayoutToken;
 
 // Modifier bitmasks for OSK character layers
 #define OSK_MOD_NONE  0
@@ -258,6 +301,8 @@ typedef struct {
     int set_idx; // Index of the current character set (row)
     OSKPositionMode position_mode; // Control for OSK positioning
     int char_idx; // Index of the selected character within the current set (column)
+    int current_char_row; // Current character row index
+    int modifier_mask; // Current modifier mask for character layout selection
 
     // Character layouts for different modifier combinations
     // Indexed by a bitmask: [GUI][ALT][CTRL][SHIFT]
@@ -266,6 +311,16 @@ typedef struct {
     int num_char_rows_by_modifier[16];
     SDL_GameController* controller;
     SDL_Joystick* joystick; // Fallback for unmapped controllers
+    
+    // Control set for special keys
+    SpecialKeySet control_set;
+    
+    // Character layout storage
+    SpecialKeySet* char_sets;
+    int num_char_rows;
+    SpecialKeySet* shifted_char_sets;
+    int num_shifted_rows;
+    
     // For special key mode modifiers (these are for the OSK's internal state, not held controller buttons)
     bool mod_ctrl;
     bool mod_alt;
@@ -294,22 +349,13 @@ typedef struct {
     int num_available_dynamic_key_sets;
     char** loaded_key_set_names; // Names of currently loaded dynamic key sets
     int num_loaded_key_sets;
+    
+    // Available dynamic key sets
+    char** available_sets;
+    int num_available_sets;
 } OnScreenKeyboard;
 
-// --- Special Keys for OSK ---
-typedef enum {
-    SK_STRING,      // For sending a literal string with no tokens
-    SK_SEQUENCE,    // A single key press with modifiers
-    SK_MACRO,       // A sequence of literal text and key presses, e.g., "echo foo{ENTER}"
-    SK_MOD_CTRL,
-    SK_MOD_ALT,
-    SK_MOD_SHIFT,
-    SK_MOD_GUI,
-    SK_INTERNAL_CMD, // For terminal-internal commands
-    SK_LOAD_FILE,    // Load a key set from a file (sequence field holds path)
-    SK_UNLOAD_FILE   // Unload a key set by name (sequence field holds name)
-} SpecialKeyType;
-
+// --- Internal Commands ---
 typedef enum {
     CMD_NONE,
     CMD_FONT_INC,
@@ -360,6 +406,29 @@ typedef enum {
     ACTION_TOGGLE_OSK,  // F12 or Controller X button
     ACTION_ENTER,       // Start button
     // ACTION_EXIT,        // Guide button: Quit application (Now handled by combo)
+    
+    // Additional Actions for Keyboard Input
+    ACTION_ESCAPE,
+    ACTION_BACKSPACE,
+    ACTION_COPY,
+    ACTION_PASTE,
+    ACTION_UNDO,
+    ACTION_REDO,
+    ACTION_MENU,
+    ACTION_OSK_PREV_ROW,
+    ACTION_OSK_NEXT_ROW,
+    ACTION_CURSOR_UP,
+    ACTION_CURSOR_DOWN,
+    ACTION_CURSOR_LEFT,
+    ACTION_CURSOR_RIGHT,
+    ACTION_FIND,
+    ACTION_SAVE,
+    ACTION_OPEN,
+    ACTION_QUIT,
+    ACTION_WINDOW_NEXT,
+    ACTION_WINDOW_CLOSE,
+    ACTION_COPY_COLUMN,
+    ACTION_PASTE_COLUMN,
 } TerminalAction;
 
 // --- Input Mapping Configuration ---

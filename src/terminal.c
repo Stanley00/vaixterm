@@ -1,6 +1,6 @@
 #include "terminal.h"
 #include "terminal_state.h" // For shared data structures
-#include "cache_manager.h"  // For glyph cache functions
+#include "glyph_cache.h" // For glyph cache functions
 #include "dirty_region_tracker.h" // For optimized dirty tracking
 #include <SDL_image.h>      // Added for IMG_LoadTexture
 
@@ -102,7 +102,7 @@ Terminal* terminal_create(int cols, int rows, const Config* config, SDL_Renderer
     }
 
     const SDL_Color default_palette[16] = {
-        { 46,  52,  54, 255}, {204,   0,   0, 255}, { 78, 154,   6, 255}, {196, 160,   0, 255},
+        { 0,   0,   0, 255}, {204,   0,   0, 255}, { 78, 154,   6, 255}, {196, 160,   0, 255},
         { 52, 101, 164, 255}, {117,  80, 123, 255}, {  6, 152, 154, 255}, {211, 215, 207, 255},
         { 85,  87,  83, 255}, {239,  41,  41, 255}, {138, 226,  52, 255}, {252, 233,  79, 255},
         {114, 159, 207, 255}, {173, 127, 168, 255}, { 52, 226, 226, 255}, {238, 238, 236, 255},
@@ -193,6 +193,10 @@ void terminal_destroy(Terminal* term)
         if (term->background_texture) {
             SDL_DestroyTexture(term->background_texture);
         }
+        if (term->glyph_cache) {
+            glyph_cache_cleanup(term->glyph_cache);
+            free(term->glyph_cache);
+        }
         free(term->grid);
         free(term->alt_grid);
         free(term->normal_grid_saved);
@@ -246,7 +250,7 @@ void terminal_reset(Terminal* term)
 
     for (int i = 0; i < term->cols * term->total_lines; ++i) {
         term->grid[i] = (Glyph) {
-            ' ', term->default_fg, term->default_bg, 0, 1
+            ' ', term->default_fg, term->default_bg, 0, 1, 0
         };
     }
     for (int i = 0; i < term->rows; ++i) {
@@ -346,7 +350,7 @@ void terminal_clear_line_to_cursor(Terminal* term, int y, int end_x)
     }
     for (int x = 0; x <= end_x && x < term->cols; ++x) {
         line_ptr[x] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1, 0
         };
     }
     terminal_mark_line_dirty(term, y);
@@ -360,7 +364,7 @@ void terminal_clear_line(Terminal* term, int y, int start_x)
     }
     for (int x = start_x; x < term->cols; ++x) {
         line_ptr[x] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1, 0
         };
     }
     terminal_mark_line_dirty(term, y);
@@ -476,7 +480,7 @@ void terminal_insert_chars(Terminal* term, int n)
     }
     for (int i = 0; i < n; ++i) {
         line[x + i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1, 0
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -503,7 +507,7 @@ void terminal_delete_chars(Terminal* term, int n)
     }
     for (int i = term->cols - n; i < term->cols; ++i) {
         line[i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1, 0
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -526,7 +530,7 @@ void terminal_erase_chars(Terminal* term, int n)
     n = SDL_min(n, term->cols - x);
     for (int i = 0; i < n; ++i) {
         line[x + i] = (Glyph) {
-            ' ', term->current_fg, term->current_bg, term->current_attributes, 1
+            ' ', term->current_fg, term->current_bg, term->current_attributes, 1, 0
         };
     }
     term->dirty_lines[term->cursor_y] = true;
@@ -725,13 +729,13 @@ void terminal_put_char(Terminal* term, uint32_t c)
     Glyph* line_ptr = get_line(term, term->cursor_y);
     if (line_ptr) {
         line_ptr[write_x] = (Glyph) {
-            mapped_char, term->current_fg, term->current_bg, term->current_attributes, (unsigned char)char_width
+            mapped_char, term->current_fg, term->current_bg, term->current_attributes, (unsigned char)char_width, 0
         };
         
         // For wide characters, mark the next cell as a continuation
         if (char_width == 2 && write_x + 1 < term->cols) {
             line_ptr[write_x + 1] = (Glyph) {
-                0, term->current_fg, term->current_bg, term->current_attributes, 0
+                0, term->current_fg, term->current_bg, term->current_attributes, 0, 0
             };
         }
     }
@@ -820,7 +824,7 @@ static void csi_h_private(Terminal* term)
                     for (int y = 0; y < term->rows; ++y) {
                         for (int x = 0; x < term->cols; ++x) {
                             term->alt_grid[y * term->cols + x] = (Glyph) {
-                                ' ', term->default_fg, term->default_bg, 0, 1
+                                ' ', term->default_fg, term->default_bg, 0, 1, 0
                             };
                         }
                     }
@@ -1470,7 +1474,7 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                             Glyph* line_ptr = get_line(term, y);
                             if (line_ptr) {
                                 line_ptr[x] = (Glyph) {
-                                    'E', term->default_fg, term->default_bg, 0, 1
+                                    'E', term->default_fg, term->default_bg, 0, 1, 0
                                 };
                             }
                         }
