@@ -73,14 +73,6 @@ bool handle_controller_axis(SDL_GameControllerAxis axis, int value,
                              Terminal* term, OnScreenKeyboard* osk, bool* needs_render);
 
 /**
- * @brief Map controller button to terminal action
- *
- * @param button Controller button
- * @return TerminalAction Mapped action
- */
-TerminalAction map_controller_button_to_action(SDL_GameControllerButton button);
-
-/**
  * @brief Check if controller button is a navigation button
  *
  * @param button Controller button

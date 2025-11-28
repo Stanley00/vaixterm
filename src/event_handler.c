@@ -12,8 +12,9 @@
 #include "input_mapper.h"
 #include "config.h"
 #include "font_manager.h"
+#include "error_handling.h"
 
-static void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
+void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
 {
     // Don't scroll when in alternate screen or no history
     if (term->alt_screen_active || term->history_size == 0) {
@@ -265,6 +266,11 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
         return;
     }
 
+    // Debug log all controller events
+    if (event->type >= SDL_CONTROLLERDEVICEADDED && event->type <= SDL_CONTROLLERDEVICEREMOVED) {
+        DEBUG_LOG("Controller event received: type=%d", event->type);
+    }
+
     if (event->type == SDL_QUIT) {
         *running = false;
         return;
@@ -278,12 +284,17 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
     // Handle OSK Toggle as a special case (gamepad only)
     bool should_toggle_osk = false;
     if (event->type == SDL_CONTROLLERBUTTONDOWN) {
+        DEBUG_LOG("Controller button down event: button=%d", event->cbutton.button);
         TerminalAction action = map_cbutton_to_action(event->cbutton.button);
+        DEBUG_LOG("Mapped action: %d (ACTION_TOGGLE_OSK=%d)", action, ACTION_TOGGLE_OSK);
         should_toggle_osk = (action == ACTION_TOGGLE_OSK);
+        DEBUG_LOG("Should toggle OSK: %s", should_toggle_osk ? "YES" : "NO");
     }
 
     if (should_toggle_osk) {
+        DEBUG_LOG("Toggling OSK state - current active: %s", osk->active ? "YES" : "NO");
         toggle_osk_state(osk, needs_render);
+        DEBUG_LOG("OSK state after toggle - active: %s", osk->active ? "YES" : "NO");
         return;
     }
     
@@ -312,10 +323,13 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
     }
     
     case SDL_CONTROLLERBUTTONDOWN: {
+        DEBUG_LOG("Controller button down: %d", event->cbutton.button);
         if (osk->active && handle_held_modifier_button(event->cbutton.button, true, osk, needs_render)) {
             // Modifier handled, consume event
+            DEBUG_LOG("Controller button %d handled as modifier", event->cbutton.button);
         } else {
             TerminalAction action = get_action_for_button_with_mode(event->cbutton.button, osk->active);
+            DEBUG_LOG("Controller button %d action: %d", event->cbutton.button, action);
             event_process_and_repeat_action(action, term, osk, needs_render, master_fd, font, config, char_w, char_h, repeat_state);
         }
         break;

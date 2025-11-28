@@ -16,11 +16,9 @@ extern const int num_key_mappings;
 // Default controller button mappings
 const ControllerButtonMapping controller_button_map[] = {
     {SDL_CONTROLLER_BUTTON_A, ACTION_SELECT},
-    {SDL_CONTROLLER_BUTTON_B, ACTION_BACK},
+    {SDL_CONTROLLER_BUTTON_B, ACTION_BACKSPACE},  // Fixed: B should be backspace
     {SDL_CONTROLLER_BUTTON_Y, ACTION_SPACE},
     {SDL_CONTROLLER_BUTTON_BACK, ACTION_TAB},
-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, ACTION_SCROLL_UP},
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, ACTION_SCROLL_DOWN},
     {SDL_CONTROLLER_BUTTON_X, ACTION_TOGGLE_OSK},
     {SDL_CONTROLLER_BUTTON_START, ACTION_ENTER},
     {SDL_CONTROLLER_BUTTON_DPAD_UP, ACTION_UP},
@@ -37,9 +35,11 @@ TerminalAction map_cbutton_to_action(SDL_GameControllerButton button)
 {
     for (int i = 0; i < num_controller_button_mappings; ++i) {
         if (controller_button_map[i].button == button) {
+            DEBUG_LOG("Controller button %d mapped to action %d", button, controller_button_map[i].action);
             return controller_button_map[i].action;
         }
     }
+    DEBUG_LOG("Controller button %d has no mapping", button);
     return ACTION_NONE;
 }
 
@@ -134,6 +134,42 @@ void init_input_devices(OnScreenKeyboard* osk, const Config* config)
             ERROR_LOG("Failed to initialize controller subsystem: %s", SDL_GetError());
         } else {
             INFO_LOG("Controller subsystem initialized");
+        }
+    }
+
+    // Add game controller mappings for common controllers
+    if (SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt") == -1) {
+        DEBUG_LOG("No custom controller database found, using defaults");
+    }
+
+    // Try to open the first available controller
+    int num_joysticks = SDL_NumJoysticks();
+    DEBUG_LOG("Found %d joysticks", num_joysticks);
+    
+    for (int i = 0; i < num_joysticks; i++) {
+        if (SDL_IsGameController(i)) {
+            SDL_GameController* controller = SDL_GameControllerOpen(i);
+            if (controller) {
+                osk->controller = controller;
+                osk->joystick = SDL_GameControllerGetJoystick(controller);
+                INFO_LOG("Opened game controller: %s", SDL_GameControllerName(controller));
+                break;
+            } else {
+                ERROR_LOG("Failed to open game controller %d: %s", i, SDL_GetError());
+            }
+        } else {
+            DEBUG_LOG("Joystick %d is not a game controller", i);
+        }
+    }
+
+    // If no game controller found, try to open first joystick as fallback
+    if (!osk->controller && num_joysticks > 0) {
+        SDL_Joystick* joystick = SDL_JoystickOpen(0);
+        if (joystick) {
+            osk->joystick = joystick;
+            INFO_LOG("Opened fallback joystick: %s", SDL_JoystickName(joystick));
+        } else {
+            ERROR_LOG("Failed to open fallback joystick: %s", SDL_GetError());
         }
     }
 
@@ -276,13 +312,10 @@ InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScre
             *needs_render = true;
             return CMD_NONE;
         case ACTION_SCROLL_UP:
-            terminal_scroll_up(term);
-            *needs_render = true;
+            terminal_scroll_view(term, SDL_max(1, term->rows / 2), needs_render);
             return CMD_NONE;
         case ACTION_SCROLL_DOWN:
-            // terminal_scroll_down doesn't exist, use scroll_up with negative logic
-            // For now, just mark as needs_render
-            *needs_render = true;
+            terminal_scroll_view(term, -SDL_max(1, term->rows / 2), needs_render);
             return CMD_NONE;
         default:
             process_direct_terminal_action(action, term, osk, needs_render, master_fd);

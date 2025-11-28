@@ -29,6 +29,7 @@ void terminal_delete_chars(Terminal* term, int n);
 void terminal_erase_chars(Terminal* term, int n);
 void terminal_newline(Terminal* term);
 void terminal_scroll_up(Terminal* term);
+void terminal_scroll_view(Terminal* term, int amount, bool* needs_render);
 void terminal_put_char(Terminal* term, uint32_t c);
 Glyph* terminal_get_view_line(Terminal* term, int y);
 

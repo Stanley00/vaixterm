@@ -472,6 +472,11 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
                 case SDL_MOUSEBUTTONDOWN:
                 case SDL_MOUSEBUTTONUP:
                 case SDL_MOUSEMOTION:
+                case SDL_CONTROLLERBUTTONDOWN:
+                case SDL_CONTROLLERBUTTONUP:
+                case SDL_CONTROLLERAXISMOTION:
+                case SDL_CONTROLLERDEVICEADDED:
+                case SDL_CONTROLLERDEVICEREMOVED:
                     // Handle input events
                     event_handle(&event, &running, &needs_render, term, osk, master_fd, 
                                font, config, char_w, char_h, &repeat_state);

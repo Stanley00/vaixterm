@@ -116,8 +116,8 @@ bool handle_controller_button(SDL_GameControllerButton button, bool state,
         return false;
     }
 
-    // Map controller button to terminal action
-    TerminalAction action = map_controller_button_to_action(button);
+    // Map controller button to terminal action using the centralized mapping
+    TerminalAction action = map_cbutton_to_action(button);
     if (action == ACTION_NONE) {
         return false;
     }
@@ -179,42 +179,6 @@ bool handle_controller_axis(SDL_GameControllerAxis axis, int value,
     }
 
     return active;
-}
-
-TerminalAction map_controller_button_to_action(SDL_GameControllerButton button)
-{
-    // This would use the same mapping system as the original input.c
-    // For now, provide a basic mapping
-    switch (button) {
-        case SDL_CONTROLLER_BUTTON_A:
-            return ACTION_ENTER;
-        case SDL_CONTROLLER_BUTTON_B:
-            return ACTION_ESCAPE;
-        case SDL_CONTROLLER_BUTTON_X:
-            return ACTION_TAB;
-        case SDL_CONTROLLER_BUTTON_Y:
-            return ACTION_BACKSPACE;
-        case SDL_CONTROLLER_BUTTON_BACK:
-            return ACTION_ESCAPE;
-        case SDL_CONTROLLER_BUTTON_START:
-            return ACTION_MENU;
-        case SDL_CONTROLLER_BUTTON_GUIDE:
-            return ACTION_MENU;
-        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-            return ACTION_OSK_PREV_ROW;
-        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-            return ACTION_OSK_NEXT_ROW;
-        case SDL_CONTROLLER_BUTTON_DPAD_UP:
-            return ACTION_CURSOR_UP;
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-            return ACTION_CURSOR_DOWN;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-            return ACTION_CURSOR_LEFT;
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-            return ACTION_CURSOR_RIGHT;
-        default:
-            return ACTION_NONE;
-    }
 }
 
 bool is_navigation_button(SDL_GameControllerButton button)
