@@ -284,11 +284,15 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
     // Handle OSK Toggle as a special case (gamepad only)
     bool should_toggle_osk = false;
     if (event->type == SDL_CONTROLLERBUTTONDOWN) {
-        DEBUG_LOG("Controller button down event: button=%d", event->cbutton.button);
+        DEBUG_LOG("Controller button down event: button=%d (X=%d, A=%d, B=%d, Y=%d)", 
+                  event->cbutton.button, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_A, 
+                  SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_Y);
         TerminalAction action = map_cbutton_to_action(event->cbutton.button);
         DEBUG_LOG("Mapped action: %d (ACTION_TOGGLE_OSK=%d)", action, ACTION_TOGGLE_OSK);
         should_toggle_osk = (action == ACTION_TOGGLE_OSK);
         DEBUG_LOG("Should toggle OSK: %s", should_toggle_osk ? "YES" : "NO");
+    } else if (event->type == SDL_CONTROLLERBUTTONUP) {
+        DEBUG_LOG("Controller button up event: button=%d", event->cbutton.button);
     }
 
     if (should_toggle_osk) {
