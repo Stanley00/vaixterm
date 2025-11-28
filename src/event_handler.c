@@ -1,8 +1,3 @@
-/**
- * @file event_handler.c
- * @brief Event handling and terminal action processing.
- */
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -18,11 +13,9 @@
 #include "config.h"
 #include "font_manager.h"
 
-/**
- * @brief Scrolls the terminal's viewport by a given amount.
- */
 static void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
 {
+    // Don't scroll when in alternate screen or no history
     if (term->alt_screen_active || term->history_size == 0) {
         return;
     }
@@ -38,9 +31,6 @@ static void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
     }
 }
 
-/**
- * @brief Updates the state of a held modifier based on a button press/release.
- */
 static bool handle_held_modifier_button(SDL_GameControllerButton button, bool pressed, 
                                        OnScreenKeyboard* osk, bool* needs_render)
 {
@@ -63,9 +53,6 @@ static bool handle_held_modifier_button(SDL_GameControllerButton button, bool pr
     return true;
 }
 
-/**
- * @brief Updates the state of a held modifier based on a trigger axis value.
- */
 static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value, 
                                      OnScreenKeyboard* osk, bool* needs_render)
 {
@@ -87,9 +74,6 @@ static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value,
     }
 }
 
-/**
- * @brief Determines the correct TerminalAction for a button press based on OSK state.
- */
 static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton button, bool osk_active)
 {
     // When OSK is inactive, shoulder buttons are for scrolling
@@ -105,9 +89,6 @@ static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton b
     return map_cbutton_to_action(button);
 }
 
-/**
- * @brief Executes internal commands that control the terminal application.
- */
 static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* needs_render, 
                                    int pty_fd, TTF_Font** font, Config* config, 
                                    OnScreenKeyboard* osk, int* char_w, int* char_h)
@@ -159,9 +140,6 @@ static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* 
     }
 }
 
-/**
- * @brief Central handler for all abstract terminal actions.
- */
 void event_handle_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, 
                                  bool* needs_render, int master_fd, TTF_Font** font, 
                                  Config* config, int* char_w, int* char_h)
@@ -189,9 +167,6 @@ void event_handle_terminal_action(TerminalAction action, Terminal* term, OnScree
     }
 }
 
-/**
- * @brief Processes a terminal action and sets up for button repeating.
- */
 void event_process_and_repeat_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, 
                                     bool* needs_render, int master_fd, TTF_Font** font, 
                                     Config* config, int* char_w, int* char_h, 
@@ -211,9 +186,6 @@ void event_process_and_repeat_action(TerminalAction action, Terminal* term, OnSc
     repeat_state->next_repeat_time = SDL_GetTicks() + BUTTON_REPEAT_INITIAL_DELAY_MS;
 }
 
-/**
- * @brief Stops repeating an action.
- */
 void event_stop_repeating_action(TerminalAction action, ButtonRepeatState* repeat_state)
 {
     if (repeat_state->is_held && repeat_state->action == action) {
@@ -221,9 +193,6 @@ void event_stop_repeating_action(TerminalAction action, ButtonRepeatState* repea
     }
 }
 
-/**
- * @brief Checks for exit event combination (BACK + START).
- */
 static int check_exit_event(SDL_Event* event, OnScreenKeyboard* osk)
 {
     switch (event->type) {
@@ -288,9 +257,6 @@ static void toggle_osk_state(OnScreenKeyboard* osk, bool* needs_render)
     *needs_render = true;
 }
 
-/**
- * @brief Main event handler function.
- */
 void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal* term, 
                  OnScreenKeyboard* osk, int master_fd, TTF_Font** font, Config* config, 
                  int* char_w, int* char_h, ButtonRepeatState* repeat_state)
@@ -309,15 +275,14 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
         return;
     }
 
-    // Handle OSK Toggle as a special case
-    TerminalAction mapped_action = ACTION_NONE;
+    // Handle OSK Toggle as a special case (gamepad only)
+    bool should_toggle_osk = false;
     if (event->type == SDL_CONTROLLERBUTTONDOWN) {
-        mapped_action = map_cbutton_to_action(event->cbutton.button);
-    } else if (event->type == SDL_KEYDOWN) {
-        mapped_action = map_keyboard_to_action(&event->key);
+        TerminalAction action = map_cbutton_to_action(event->cbutton.button);
+        should_toggle_osk = (action == ACTION_TOGGLE_OSK);
     }
 
-    if (mapped_action == ACTION_TOGGLE_OSK) {
+    if (should_toggle_osk) {
         toggle_osk_state(osk, needs_render);
         return;
     }
@@ -336,36 +301,8 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
         break;
         
     case SDL_KEYDOWN: {
-        if (osk->active) {
-            // Keyboard is navigating the OSK
-            TerminalAction action = ACTION_NONE;
-            switch (event->key.keysym.sym) {
-            case SDLK_UP: action = ACTION_UP; break;
-            case SDLK_DOWN: action = ACTION_DOWN; break;
-            case SDLK_LEFT: action = ACTION_LEFT; break;
-            case SDLK_RIGHT: action = ACTION_RIGHT; break;
-            case SDLK_RETURN:
-            case SDLK_KP_ENTER: action = ACTION_SELECT; break;
-            case SDLK_BACKSPACE: action = ACTION_BACK; break;
-            case SDLK_TAB: action = ACTION_TAB; break;
-            case SDLK_ESCAPE: action = ACTION_BACK; break;
-            }
-            
-            if (action != ACTION_NONE) {
-                InternalCommand cmd = process_osk_action(action, term, osk, needs_render, master_fd);
-                if (cmd != CMD_NONE) {
-                    execute_internal_command(cmd, term, needs_render, master_fd, font, config, osk, char_w, char_h);
-                }
-            }
-        } else {
-            // Keyboard is for the terminal directly
-            TerminalAction action = map_keyboard_to_action(&event->key);
-            if (action != ACTION_NONE) {
-                event_handle_terminal_action(action, term, osk, needs_render, master_fd, font, config, char_w, char_h);
-            } else {
-                handle_key_down(&event->key, master_fd, term);
-            }
-        }
+        // Handle all keyboard input as normal terminal input
+        handle_key_down(&event->key, master_fd, term);
         break;
     }
     

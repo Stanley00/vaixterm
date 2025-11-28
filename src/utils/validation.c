@@ -200,32 +200,6 @@ ValidationResult validate_osk(const OnScreenKeyboard* osk, bool check_initialize
     return VALIDATION_SUCCESS;
 }
 
-ValidationResult validate_renderer(SDL_Renderer* renderer, const char* param_name)
-{
-    ValidationResult result = validate_pointer(renderer, param_name);
-    if (result != VALIDATION_SUCCESS) {
-        return result;
-    }
-
-    // Additional renderer-specific validation could be added here
-    // For now, just check if the pointer is valid
-
-    return VALIDATION_SUCCESS;
-}
-
-ValidationResult validate_font(TTF_Font* font, const char* param_name)
-{
-    ValidationResult result = validate_pointer(font, param_name);
-    if (result != VALIDATION_SUCCESS) {
-        return result;
-    }
-
-    // Additional font-specific validation could be added here
-    // For now, just check if the pointer is valid
-
-    return VALIDATION_SUCCESS;
-}
-
 ValidationResult validate_file_descriptor(int fd, const char* param_name, bool check_writable)
 {
     if (fd < 0) {
@@ -288,10 +262,10 @@ ValidationResult validate_rendering_params(SDL_Renderer* renderer, TTF_Font* fon
 {
     ValidationResult result;
 
-    result = validate_renderer(renderer, "renderer");
+    result = validate_pointer(renderer, "renderer");
     if (result != VALIDATION_SUCCESS) return result;
 
-    result = validate_font(font, "font");
+    result = validate_pointer(font, "font");
     if (result != VALIDATION_SUCCESS) return result;
 
     result = validate_size(char_w, char_h, "char");

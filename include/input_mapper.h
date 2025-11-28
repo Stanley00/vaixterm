@@ -27,14 +27,6 @@
 TerminalAction map_cbutton_to_action(SDL_GameControllerButton button);
 
 /**
- * @brief Map a keyboard key event to a terminal action
- *
- * @param key Pointer to the keyboard event
- * @return TerminalAction Mapped terminal action
- */
-TerminalAction map_keyboard_to_action(const SDL_KeyboardEvent* key);
-
-/**
  * @brief Get combined modifiers from OSK state
  *
  * @param osk Pointer to the OSK structure

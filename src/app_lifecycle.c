@@ -429,7 +429,7 @@ bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config*
 
         render_credit_screen(renderer, font, config->win_w, config->win_h);
         SDL_RenderPresent(renderer);
-        SDL_Delay(100); // 500ms delay for better visibility
+        SDL_Delay(16); // Normal 60 FPS rendering
     }
     return true;
 }
@@ -445,11 +445,8 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
     char buf[4096];
     
     // Initial render
-    DEBUG_LOG("Performing initial render...");
     terminal_render(renderer, term, *font, *char_w, *char_h, osk, true, config->win_w, config->win_h);
     SDL_RenderPresent(renderer);
-    
-    DEBUG_LOG("Entering main loop...");
 
     while (running) {
         Uint32 frame_start = SDL_GetTicks();
@@ -457,16 +454,13 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
         // Process all pending events first
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            DEBUG_LOG("Processing event: %d", event.type);
             
             switch (event.type) {
                 case SDL_QUIT:
-                    DEBUG_LOG("Received SDL_QUIT event, exiting...");
                     running = false;
                     break;
                     
                 case SDL_WINDOWEVENT:
-                    DEBUG_LOG("Window event: %d", event.window.event);
                     if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
                         event.window.event == SDL_WINDOWEVENT_SHOWN) {
                         needs_render = true;
@@ -502,8 +496,6 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
             ssize_t bytes_read = read(master_fd, buf, sizeof(buf) - 1);
             if (bytes_read > 0) {
                 buf[bytes_read] = '\0';
-                DEBUG_LOG("Read %zd bytes from PTY: [%.*s]", 
-                        bytes_read, (int)bytes_read, buf);
                 
                 if (term->view_offset != 0) {
                     term->view_offset = 0;

@@ -4,8 +4,8 @@
 
 # Source files
 SRCS = src/main.c src/app_lifecycle.c src/event_handler.c src/font_manager.c src/config_manager.c \
-       src/dirty_region_tracker.c src/memory_pool.c src/manualfont.c src/terminal.c \
-       src/utils/error_codes.c src/utils/validation.c src/utils/error_handling.c src/utils/module_integration.c src/utils/performance_optimizer.c src/utils/standards_compliance.c src/core/terminal_parser.c src/core/terminal_grid.c \
+       src/dirty_region_tracker.c src/manualfont.c src/terminal.c \
+       src/utils/error_codes.c src/utils/validation.c src/utils/error_handling.c src/core/terminal_parser.c src/core/terminal_grid.c \
        src/core/terminal_modes.c src/osk/osk_core.c src/osk/osk_renderer.c src/osk/osk_parser.c \
        src/rendering/rendering_core.c src/rendering/glyph_cache.c src/rendering/color_manager.c \
        src/input/input_mapper.c src/input/keyboard_handler.c src/input/controller_handler.c

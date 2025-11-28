@@ -42,45 +42,13 @@ const ControllerButtonMapping controller_button_map[] = {
 
 const int num_controller_button_mappings = sizeof(controller_button_map) / sizeof(controller_button_map[0]);
 
-// Default keyboard mappings
-const KeyMapping key_map[] = {
-    {SDLK_ESCAPE, ACTION_ESCAPE},
-    {SDLK_BACKSPACE, ACTION_BACKSPACE},
-    {SDLK_TAB, ACTION_TAB},
-    {SDLK_RETURN, ACTION_ENTER},
-    {SDLK_SPACE, ACTION_SPACE},
-    {SDLK_UP, ACTION_UP},
-    {SDLK_DOWN, ACTION_DOWN},
-    {SDLK_LEFT, ACTION_LEFT},
-    {SDLK_RIGHT, ACTION_RIGHT},
-    {SDLK_F1, ACTION_TOGGLE_OSK},
-    {SDLK_F12, ACTION_TOGGLE_OSK},
-    {SDLK_c, ACTION_COPY},
-    {SDLK_v, ACTION_PASTE},
-};
-
-const int num_key_mappings = sizeof(key_map) / sizeof(key_map[0]);
+// Default keyboard mappings - removed since we handle keys directly
 
 TerminalAction map_cbutton_to_action(SDL_GameControllerButton button)
 {
     for (int i = 0; i < num_controller_button_mappings; ++i) {
         if (controller_button_map[i].button == button) {
             return controller_button_map[i].action;
-        }
-    }
-    return ACTION_NONE;
-}
-
-TerminalAction map_keyboard_to_action(const SDL_KeyboardEvent* key)
-{
-    if (!key) {
-        ERROR_LOG("Invalid parameter: key=%p", (void*)key);
-        return ACTION_NONE;
-    }
-
-    for (int i = 0; i < num_key_mappings; ++i) {
-        if (key_map[i].sym == key->keysym.sym) {
-            return key_map[i].action;
         }
     }
     return ACTION_NONE;

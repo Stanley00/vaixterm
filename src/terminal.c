@@ -1292,6 +1292,9 @@ void sgr_to_color(Terminal* term)
         case 49:
             term->current_bg = term->default_bg;
             break;
+        default:
+            // Ignore unknown SGR parameters to prevent rendering issues
+            break;
         }
     }
 }
@@ -1379,7 +1382,6 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                         terminal_put_char(term, term->utf8_codepoint);
                     }
                 } else {
-                    fprintf(stderr, "Debug: Invalid UTF-8 continuation byte: 0x%02x\n", c);
                     term->utf8_bytes_to_read = 0;
                     i--;
                 }
@@ -1513,7 +1515,6 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                     terminal_reset(term);
                     break;
                 }
-                fprintf(stderr, "Debug: Unhandled ESC sequence: ESC %c (0x%02x)\n", isprint(c) ? c : '?', c);
                 term->parse_state = STATE_NORMAL;
             }
             break;
@@ -1531,7 +1532,6 @@ void terminal_handle_input(Terminal* term, const char* buf, size_t len)
                     term->osc_buffer[term->osc_len++] = c;
                 }
             } else {
-                fprintf(stderr, "Debug: Aborting OSC sequence due to unexpected character: 0x%02x\n", c);
                 term->parse_state = STATE_NORMAL;
             }
             break;
