@@ -1,14 +1,3 @@
-/**
- * @file input_mapper.c
- * @brief Input mapping functionality implementation.
- *
- * This module implements mapping of raw input events to terminal actions
- * with proper error handling and validation.
- *
- * @author VaixTerm Team
- * @date 2024
- */
-
 #include "input_mapper.h"
 #include "error_codes.h"
 #include "terminal.h"
