@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 
 # Create temporary directory for building
-BUILD_DIR="./build"
+BUILD_DIR="./build_muos"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -21,6 +21,10 @@ chmod +x "$BUILD_DIR/Terminal/terminal"
 # Copy resource files
 mkdir -p "$BUILD_DIR/Terminal/res"
 cp -r ../res/* "$BUILD_DIR/Terminal/res/"
+
+# Copy additional MuOS files
+cp MUOS/Terminal/mux_lang.ini "$BUILD_DIR/Terminal/"
+cp MUOS/Terminal/env.template "$BUILD_DIR/Terminal/"
 
 chmod +x "$BUILD_DIR/Terminal/mux_launch.sh"
 

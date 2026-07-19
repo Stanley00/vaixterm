@@ -382,6 +382,7 @@ void osk_invalidate_render_cache(OnScreenKeyboard* osk)
     osk->cached_set_idx = -1;
     osk->cached_mod_mask = -1;
     osk->cached_key_width = -1;
+    s_max_mod_indicator_width = -1;
     DEBUG_LOG("Invalidated OSK render cache");
 }
 
@@ -436,7 +437,7 @@ static bool is_special_key_toggled(const Terminal* term, const OnScreenKeyboard*
 
 OSKKeyCache* osk_key_cache_create(void)
 {
-    OSKKeyCache* cache = calloc(OSK_KEY_CACHE_SIZE, sizeof(OSKKeyCache));
+    OSKKeyCache* cache = calloc(1, sizeof(OSKKeyCache));
     if (!cache) {
         ERROR_LOG("Failed to allocate OSK key cache");
         return NULL;

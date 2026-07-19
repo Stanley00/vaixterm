@@ -27,22 +27,15 @@ uint64_t make_glyph_key(uint32_t c, unsigned char attributes, SDL_Color fg)
 
 uint32_t hash_key(uint64_t key)
 {
-    key = (~key) + (key << 21);
-    key = key ^ (key >> 24);
-    key = (key + (key << 3)) + (key << 8);
-    key = key ^ (key >> 14);
-    key = (key + (key << 2)) + (key << 4);
-    key = key ^ (key >> 28);
-    key = key + (key << 31);
-    return key % GLYPH_CACHE_SIZE;
+    key ^= key >> 33;
+    key *= 0xff51afd7ed558ccdULL;
+    key ^= key >> 33;
+    return (uint32_t)key & (GLYPH_CACHE_SIZE - 1);
 }
 
 GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 {
-    if (!cache) {
-        ERROR_LOG("Invalid parameter: cache=%p", (void*)cache);
-        return NULL;
-    }
+    if (!cache) return NULL;
 
     uint32_t index = hash_key(key);
     // Quadratic probing with LRU tracking
@@ -62,10 +55,7 @@ GlyphCacheEntry* glyph_cache_get(GlyphCache* cache, uint64_t key)
 
 bool glyph_cache_put(GlyphCache* cache, uint64_t key, SDL_Texture* texture, int w, int h)
 {
-    if (!cache || !texture || w <= 0 || h <= 0) {
-        ERROR_LOG("Invalid parameters: cache=%p, texture=%p, w=%d, h=%d", (void*)cache, (void*)texture, w, h);
-        return false;
-    }
+    if (!cache || !texture || w <= 0 || h <= 0) return false;
 
     uint32_t index = hash_key(key);
     // Quadratic probing with LRU eviction
@@ -204,8 +194,6 @@ bool render_and_cache_glyph(SDL_Renderer* renderer, TTF_Font* font, GlyphCache* 
 {
     (void)bg;
     if (!renderer || !font || !cache || !texture || !w || !h) {
-        ERROR_LOG("Invalid parameters: renderer=%p, font=%p, cache=%p, texture=%p, w=%p, h=%p",
-                  (void*)renderer, (void*)font, (void*)cache, (void*)texture, (void*)w, (void*)h);
         return false;
     }
 
@@ -234,7 +222,7 @@ bool render_and_cache_glyph(SDL_Renderer* renderer, TTF_Font* font, GlyphCache* 
     }
     utf8_str[utf8_len] = '\0';
 
-    // Apply text styling based on attributes
+    // Apply text styling based on attributes (only set if different from current)
     int font_style = TTF_STYLE_NORMAL;
     if (attributes & ATTR_BOLD) font_style |= TTF_STYLE_BOLD;
     if (attributes & ATTR_ITALIC) font_style |= TTF_STYLE_ITALIC;
@@ -245,7 +233,6 @@ bool render_and_cache_glyph(SDL_Renderer* renderer, TTF_Font* font, GlyphCache* 
     // Render the glyph
     SDL_Surface* surface = TTF_RenderUTF8_Blended(font, utf8_str, fg);
     if (!surface) {
-        ERROR_LOG("Failed to render glyph surface: %s", TTF_GetError());
         TTF_SetFontStyle(font, TTF_STYLE_NORMAL);
         return false;
     }
@@ -253,7 +240,6 @@ bool render_and_cache_glyph(SDL_Renderer* renderer, TTF_Font* font, GlyphCache* 
     // Create texture
     SDL_Texture* glyph_texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (!glyph_texture) {
-        ERROR_LOG("Failed to create glyph texture: %s", SDL_GetError());
         SDL_FreeSurface(surface);
         TTF_SetFontStyle(font, TTF_STYLE_NORMAL);
         return false;
@@ -269,10 +255,7 @@ bool render_and_cache_glyph(SDL_Renderer* renderer, TTF_Font* font, GlyphCache* 
 
     // Cache the glyph
     uint64_t cache_key = make_glyph_key(c, attributes, fg);
-    if (!glyph_cache_put(cache, cache_key, glyph_texture, *w, *h)) {
-        WARN_LOG("Failed to cache glyph, but rendering succeeded");
-    }
+    glyph_cache_put(cache, cache_key, glyph_texture, *w, *h);
 
-    DEBUG_LOG("Rendered and cached glyph U+%04X", c);
     return true;
 }

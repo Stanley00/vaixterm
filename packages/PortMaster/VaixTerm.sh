@@ -29,10 +29,10 @@ mkdir -p "$GAMEDIR/conf"
 
 if [ "$CFW_NAME" = "TrimUI" ]; then
     export LD_LIBRARY_PATH="$GAMEDIR/libs.compat:$LD_LIBRARY_PATH"
-    export BINARY=nsfb.compat
+    export BINARY=terminal.compat
 elif [[ $CFW_NAME == *"ArkOS"* ]]; then
     export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
-        export BINARY=nsfb.compat
+    export BINARY=terminal.compat
 elif [ "$CFW_NAME" = "ROCKNIX" ]; then
     rm -f "$GAMEDIR/libs.${DEVICE_ARCH}/libwayland-client.so.0"
     export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
@@ -41,15 +41,13 @@ else
 fi
 
 export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
-export NETSURFRES="$GAMEDIR/resources"
-export NETSURF_DIR="$GAMEDIR/"
 export XDG_DATA_HOME="$CONFDIR"
 
 cd $GAMEDIR
 
-#$GPTOKEYB "$BINARY" -c "./vaixterm.gptk" &
+$GPTOKEYB "$BINARY" -c "./vaixterm.gptk" &
 echo $DISPLAY_WIDTH
-./$BINARY  -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT" -b res/background.png
+./$BINARY -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT" -b res/background.png
 
 $ESUDO kill -9 $(pidof gptokeyb)
 $ESUDO systemctl restart oga_events &

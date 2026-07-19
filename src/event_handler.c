@@ -8,23 +8,26 @@
 #include "event_handler.h"
 #include "terminal_state.h"
 #include "terminal.h"
+#include "terminal_libvterm.h"
 #include "osk_core.h"
 #include "input_mapper.h"
+#include "keyboard_handler.h"
 #include "config.h"
 #include "font_manager.h"
-#include "error_handling.h"
+#include "error_codes.h"
 
 void terminal_scroll_view(Terminal* term, int amount, bool* needs_render)
 {
     // Don't scroll when in alternate screen or no history
-    if (term->alt_screen_active || term->history_size == 0) {
+    int sb_count = terminal_get_scrollback_count(term);
+    if (term->alt_screen_active || sb_count == 0) {
         return;
     }
 
     int old_offset = term->view_offset;
     int new_offset = term->view_offset + amount;
 
-    term->view_offset = SDL_max(0, SDL_min(term->history_size, new_offset));
+    term->view_offset = SDL_max(0, SDL_min(sb_count, new_offset));
 
     if (term->view_offset != old_offset) {
         *needs_render = true;
@@ -75,21 +78,6 @@ static void handle_held_modifier_axis(SDL_GameControllerAxis axis, Sint16 value,
     }
 }
 
-static TerminalAction get_action_for_button_with_mode(SDL_GameControllerButton button, bool osk_active)
-{
-    // When OSK is inactive, shoulder buttons are for scrolling
-    if (!osk_active) {
-        if (button == HELD_MODIFIER_SHIFT_BUTTON) {
-            return ACTION_SCROLL_UP;
-        }
-        if (button == HELD_MODIFIER_CTRL_BUTTON) {
-            return ACTION_SCROLL_DOWN;
-        }
-    }
-    
-    return map_cbutton_to_action(button);
-}
-
 static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* needs_render, 
                                    int pty_fd, TTF_Font** font, Config* config, 
                                    OnScreenKeyboard* osk, int* char_w, int* char_h)
@@ -111,9 +99,6 @@ static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* 
         break;
     case CMD_CURSOR_TOGGLE_BLINK:
         term->cursor_style_blinking = !term->cursor_style_blinking;
-        if (term->cursor_style_blinking) {
-            term->cursor_blink_on = true;
-        }
         *needs_render = true;
         break;
     case CMD_CURSOR_CYCLE_STYLE:
@@ -122,19 +107,23 @@ static void execute_internal_command(InternalCommand cmd, Terminal* term, bool* 
         break;
     case CMD_TERMINAL_RESET:
         terminal_reset(term);
-        if (pty_fd != -1) {
-            write(pty_fd, "\f", 1);
-        }
         *needs_render = true;
         break;
     case CMD_TERMINAL_CLEAR:
-        terminal_clear_visible_screen(term);
+        terminal_libvterm_feed(term, "\x1b[2J\x1b[H", 7);
+        term->full_redraw_needed = true;
         *needs_render = true;
         break;
     case CMD_OSK_TOGGLE_POSITION:
-        osk->position_mode = (osk->position_mode == OSK_POSITION_OPPOSITE) ? 
-                            OSK_POSITION_SAME : OSK_POSITION_OPPOSITE;
+        osk->position_mode = (osk->position_mode == OSK_POSITION_OPPOSITE) ? OSK_POSITION_SAME : OSK_POSITION_OPPOSITE;
         *needs_render = true;
+        break;
+    case CMD_RELOAD_THEME:
+        if (config->colorscheme_path) {
+            terminal_load_colorscheme(term, config->colorscheme_path);
+            *needs_render = true;
+            INFO_LOG("Theme reloaded: %s", config->colorscheme_path);
+        }
         break;
     case CMD_NONE:
         break;
@@ -151,6 +140,9 @@ void event_handle_terminal_action(TerminalAction action, Terminal* term, OnScree
         break;
     case ACTION_SCROLL_DOWN:
         terminal_scroll_view(term, -MOUSE_WHEEL_SCROLL_AMOUNT, needs_render);
+        break;
+    case ACTION_RELOAD_THEME:
+        execute_internal_command(CMD_RELOAD_THEME, term, needs_render, master_fd, font, config, osk, char_w, char_h);
         break;
     default: {
         InternalCommand cmd = CMD_NONE;
@@ -266,11 +258,6 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
         return;
     }
 
-    // Debug log all controller events
-    if (event->type >= SDL_CONTROLLERDEVICEADDED && event->type <= SDL_CONTROLLERDEVICEREMOVED) {
-        DEBUG_LOG("Controller event received: type=%d", event->type);
-    }
-
     if (event->type == SDL_QUIT) {
         *running = false;
         return;
@@ -280,72 +267,86 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
         *running = false;
         return;
     }
-
-    // Handle OSK Toggle as a special case (gamepad only)
-    bool should_toggle_osk = false;
-    if (event->type == SDL_CONTROLLERBUTTONDOWN) {
-        DEBUG_LOG("Controller button down event: button=%d (X=%d, A=%d, B=%d, Y=%d)", 
-                  event->cbutton.button, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_A, 
-                  SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_Y);
-        TerminalAction action = map_cbutton_to_action(event->cbutton.button);
-        DEBUG_LOG("Mapped action: %d (ACTION_TOGGLE_OSK=%d)", action, ACTION_TOGGLE_OSK);
-        should_toggle_osk = (action == ACTION_TOGGLE_OSK);
-        DEBUG_LOG("Should toggle OSK: %s", should_toggle_osk ? "YES" : "NO");
-    } else if (event->type == SDL_CONTROLLERBUTTONUP) {
-        DEBUG_LOG("Controller button up event: button=%d", event->cbutton.button);
-    }
-
-    if (should_toggle_osk) {
-        DEBUG_LOG("Toggling OSK state - current active: %s", osk->active ? "YES" : "NO");
-        toggle_osk_state(osk, needs_render);
-        DEBUG_LOG("OSK state after toggle - active: %s", osk->active ? "YES" : "NO");
-        return;
-    }
     
     if (config->read_only) {
         return;
     }
 
     switch (event->type) {
-    case SDL_TEXTINPUT:
-        write(master_fd, event->text.text, strlen(event->text.text));
+    case SDL_TEXTINPUT: {
+        const char* text = event->text.text;
+        while (*text) {
+            uint32_t codepoint = 0;
+            unsigned char c = (unsigned char)*text;
+            int bytes = 0;
+            if (c < 0x80) {
+                codepoint = c;
+                bytes = 1;
+            } else if ((c & 0xE0) == 0xC0) {
+                codepoint = (c & 0x1F) << 6;
+                codepoint |= (unsigned char)text[1] & 0x3F;
+                bytes = 2;
+            } else if ((c & 0xF0) == 0xE0) {
+                codepoint = (c & 0x0F) << 12;
+                codepoint |= ((unsigned char)text[1] & 0x3F) << 6;
+                codepoint |= (unsigned char)text[2] & 0x3F;
+                bytes = 3;
+            } else if ((c & 0xF8) == 0xF0) {
+                codepoint = (c & 0x07) << 18;
+                codepoint |= ((unsigned char)text[1] & 0x3F) << 12;
+                codepoint |= ((unsigned char)text[2] & 0x3F) << 6;
+                codepoint |= (unsigned char)text[3] & 0x3F;
+                bytes = 4;
+            } else {
+                bytes = 1;
+            }
+            if (codepoint >= 0x20) {
+                terminal_libvterm_unichar(term, codepoint, VTERM_MOD_NONE);
+            }
+            text += bytes;
+        }
         break;
+    }
         
     case SDL_MOUSEWHEEL:
         terminal_scroll_view(term, event->wheel.y * MOUSE_WHEEL_SCROLL_AMOUNT, needs_render);
         break;
         
+    /* ===== KEYBOARD INPUT (primary) ===== */
     case SDL_KEYDOWN: {
-        // Handle all keyboard input as normal terminal input
         handle_key_down(&event->key, master_fd, term);
         break;
     }
     
+    /* ===== CONTROLLER INPUT (secondary) ===== */
     case SDL_CONTROLLERAXISMOTION: {
         handle_held_modifier_axis(event->caxis.axis, event->caxis.value, osk, needs_render);
         break;
     }
     
     case SDL_CONTROLLERBUTTONDOWN: {
-        DEBUG_LOG("Controller button down: %d", event->cbutton.button);
-        if (osk->active && handle_held_modifier_button(event->cbutton.button, true, osk, needs_render)) {
-            // Modifier handled, consume event
-            DEBUG_LOG("Controller button %d handled as modifier", event->cbutton.button);
-        } else {
-            TerminalAction action = get_action_for_button_with_mode(event->cbutton.button, osk->active);
-            DEBUG_LOG("Controller button %d action: %d", event->cbutton.button, action);
-            event_process_and_repeat_action(action, term, osk, needs_render, master_fd, font, config, char_w, char_h, repeat_state);
+        TerminalAction action = map_cbutton_to_action(event->cbutton.button);
+        
+        if (action == ACTION_TOGGLE_OSK) {
+            toggle_osk_state(osk, needs_render);
+            return;
         }
+        
+        if (osk->active && handle_held_modifier_button(event->cbutton.button, true, osk, needs_render)) {
+            break;
+        }
+        
+        event_process_and_repeat_action(action, term, osk, needs_render, master_fd, font, config, char_w, char_h, repeat_state);
         break;
     }
     
     case SDL_CONTROLLERBUTTONUP: {
         if (osk->active && handle_held_modifier_button(event->cbutton.button, false, osk, needs_render)) {
-            // Modifier handled, consume event
-        } else {
-            TerminalAction action = get_action_for_button_with_mode(event->cbutton.button, osk->active);
-            event_stop_repeating_action(action, repeat_state);
+            break;
         }
+        
+        TerminalAction action = map_cbutton_to_action(event->cbutton.button);
+        event_stop_repeating_action(action, repeat_state);
         break;
     }
     
@@ -354,19 +355,18 @@ void event_handle(SDL_Event* event, bool* running, bool* needs_render, Terminal*
             SDL_GameController* new_controller = SDL_GameControllerOpen(event->cdevice.which);
             if (new_controller) {
                 if (osk->joystick) {
-                    printf("Replacing fallback joystick with Game Controller.\n");
                     SDL_JoystickClose(osk->joystick);
                     osk->joystick = NULL;
                 }
                 osk->controller = new_controller;
-                printf("Game Controller connected: %s\n", SDL_GameControllerName(osk->controller));
+                INFO_LOG("Game Controller connected: %s", SDL_GameControllerName(osk->controller));
             }
         }
         break;
         
     case SDL_CONTROLLERDEVICEREMOVED:
         if (osk->controller && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(osk->controller)) == event->cdevice.which) {
-            printf("Controller disconnected.\n");
+            INFO_LOG("Controller disconnected");
             SDL_GameControllerClose(osk->controller);
             osk->controller = NULL;
             init_input_devices(osk, config);

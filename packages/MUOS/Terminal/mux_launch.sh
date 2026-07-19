@@ -1,22 +1,29 @@
 #!/bin/sh
-# HELP: VAIX Terminal
+# HELP: VaixTerm Terminal Emulator
 # ICON: terminal
-# GRID: Terminal
+# GRID: VaixTerm
 
 . /opt/muos/script/var/func.sh
 
-echo app >/tmp/act_go
+APP_BIN="terminal"
+SETUP_APP "$APP_BIN" ""
 
-GOV_GO="/tmp/gov_go"
-[ -e "$GOV_GO" ] && cat "$GOV_GO" >"$(GET_VAR "device" "cpu/governor")"
+SETUP_STAGE_OVERLAY
 
-SETUP_SDL_ENVIRONMENT
+GAMEDIR="$(GET_VAR "device" "storage/rom/mount")/MUOS/application/VaixTerm"
+CONFDIR="$GAMEDIR/conf"
 
-BASE_DIR="$1"
-cd "$BASE_DIR" || exit
+> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
 
-SET_VAR "system" "foreground_process" "terminal"
+mkdir -p "$CONFDIR"
 
-./terminal -b res/background.png  --key-set -res/bash.keys --key-set -res/nano.keys --key-set -res/vim.keys --key-set -res/shell.keys --key-set +res/ctrl-shell.keys --key-set -res/vaixterm.keys --osk-layout res/qwerty.kb 
+export XDG_DATA_HOME="$CONFDIR"
+export SDL_GAMECONTROLLERCONFIG_FILE="/usr/lib/gamecontrollerdb.txt"
 
-unset SDL_ASSERT SDL_HQ_SCALER SDL_ROTATION SDL_BLITTER_DISABLED
+cd "$GAMEDIR" || exit
+
+$GPTOKEYB "$APP_BIN" -c "./vaixterm.gptk" &
+
+./$APP_BIN -w "$DISPLAY_WIDTH" -h "$DISPLAY_HEIGHT" -b res/background.png
+
+$ESUDO kill -9 "$(pidof gptokeyb2)"

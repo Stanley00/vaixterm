@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <pwd.h>
 #include <sys/select.h>
+#include <time.h>
 
 // PTY headers vary by OS
 #if defined(__linux__)
@@ -28,22 +29,21 @@
 #include <SDL_gamecontroller.h>
 #include <SDL_image.h>
 
-#define BUTTON_REPEAT_INTERVAL_MS 100
-
 #include "app_lifecycle.h"
 #include "terminal_state.h"
 #include "terminal.h"
+#include "terminal_libvterm.h"
 #include "rendering_core.h"
 #include "event_handler.h"
 #include "font_manager.h"
 #include "config_manager.h"
-#include "error_handling.h"
+#include "error_codes.h"
+#include "config.h"
 #include "dirty_region_tracker.h"
 #include "input_mapper.h"
 #include "osk_core.h"
 #include "osk_renderer.h"
 #include "glyph_cache.h"
-#include "debug.h"
 
 /**
  * @brief Sets up SDL video hints for cross-platform compatibility.
@@ -312,7 +312,7 @@ Terminal* app_init_terminal(const Config* config, SDL_Renderer* renderer, int ch
     
     Terminal* term = terminal_create(term_cols, term_rows, config, renderer);
     if (!term) {
-        fprintf(stderr, "Failed to create terminal instance.\n");
+        ERROR_LOG("Failed to create terminal instance");
         return NULL;
     }
 
@@ -321,7 +321,7 @@ Terminal* app_init_terminal(const Config* config, SDL_Renderer* renderer, int ch
                            SDL_TEXTUREACCESS_TARGET,
                            config->win_w, config->win_h);
     if (!term->screen_texture) {
-        fprintf(stderr, "Failed to create screen texture: %s\n", SDL_GetError());
+        ERROR_LOG("Failed to create screen texture: %s", SDL_GetError());
         terminal_destroy(term);
         return NULL;
     }
@@ -329,13 +329,13 @@ Terminal* app_init_terminal(const Config* config, SDL_Renderer* renderer, int ch
     // Allocate and initialize glyph cache
     term->glyph_cache = malloc(sizeof(GlyphCache));
     if (!term->glyph_cache) {
-        fprintf(stderr, "Failed to allocate glyph cache\n");
+        ERROR_LOG("Failed to allocate glyph cache");
         terminal_destroy(term);
         return NULL;
     }
     
     if (!glyph_cache_init(term->glyph_cache, GLYPH_CACHE_SIZE)) {
-        fprintf(stderr, "Failed to initialize glyph cache\n");
+        ERROR_LOG("Failed to initialize glyph cache");
         free(term->glyph_cache);
         term->glyph_cache = NULL;
         terminal_destroy(term);
@@ -378,15 +378,13 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config)
         .cached_mode = OSK_MODE_CHARS,
         .cached_mod_mask = -1,
         .show_special_set_name = false,
-        .available_dynamic_key_sets = NULL,
-        .num_available_dynamic_key_sets = 0,
         .loaded_key_set_names = NULL,
         .num_loaded_key_sets = 0
     };
     
     osk->key_cache = osk_key_cache_create();
     if (!osk->key_cache) {
-        fprintf(stderr, "Failed to create OSK key cache.\n");
+        ERROR_LOG("Failed to create OSK key cache");
         return false;
     }
 
@@ -402,20 +400,27 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config)
 /**
  * @brief Runs the credit screen if enabled.
  */
-bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config* config, 
+bool app_run_credit_screen(SDL_Window* win, SDL_Renderer* renderer, TTF_Font* font, const Config* config, 
                           pid_t pid, Terminal* term, OnScreenKeyboard* osk, int master_fd)
 {
     if (config->no_credit || config->custom_command) {
         return true; // Skip credit screen
     }
 
+    // Flush stale events (e.g. the key press that launched the app)
+    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+
     bool credit_running = true;
+    bool needs_render = true;
     while (credit_running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 app_cleanup_and_exit(config, term, osk, renderer, NULL, font, pid, master_fd);
                 return false; // Will not return
+            }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                needs_render = true;
             }
             if (event.type == SDL_KEYDOWN || event.type == SDL_JOYBUTTONDOWN || 
                 event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONDOWN) {
@@ -427,22 +432,105 @@ bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config*
             break;
         }
 
-        render_credit_screen(renderer, font, config->win_w, config->win_h);
-        SDL_RenderPresent(renderer);
-        SDL_Delay(16); // Normal 60 FPS rendering
+        if (needs_render) {
+            int w, h;
+            SDL_GetWindowSize(win, &w, &h);
+            render_credit_screen(renderer, font, w, h);
+            SDL_RenderPresent(renderer);
+            needs_render = false;
+        }
+        SDL_Delay(100);
     }
+    // Flush remaining events from the dismiss keypress (SDL_KEYUP, SDL_TEXTINPUT, etc.)
+    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
     return true;
 }
 /**
  * @brief Main application loop.
  */
+static void handle_window_resize(SDL_Window* win, SDL_Renderer* renderer,
+                                 Config* config, Terminal* term,
+                                 OnScreenKeyboard* osk, int* char_w, int* char_h,
+                                 int master_fd, bool* needs_render)
+{
+    int new_w, new_h;
+    SDL_GetWindowSize(win, &new_w, &new_h);
+    if (new_w <= 0 || new_h <= 0 || (new_w == config->win_w && new_h == config->win_h))
+        return;
+
+    config->win_w = new_w;
+    config->win_h = new_h;
+    int new_cols = config->win_w / *char_w;
+    int new_rows = config->win_h / *char_h;
+
+    terminal_resize(term, new_cols, new_rows);
+    if (term->glyph_cache) {
+        glyph_cache_cleanup(term->glyph_cache);
+        glyph_cache_init(term->glyph_cache, GLYPH_CACHE_SIZE);
+    }
+    osk_key_cache_destroy(osk->key_cache);
+    osk->key_cache = osk_key_cache_create();
+    osk_invalidate_render_cache(osk);
+
+    // Create new texture first, only destroy old on success (BUG 2)
+    SDL_Texture* new_tex = SDL_CreateTexture(renderer,
+                           SDL_PIXELFORMAT_RGBA8888,
+                           SDL_TEXTUREACCESS_TARGET,
+                           config->win_w, config->win_h);
+    if (new_tex) {
+        if (term->screen_texture) SDL_DestroyTexture(term->screen_texture);
+        term->screen_texture = new_tex;
+    }
+
+    struct winsize ws = {
+        .ws_row = (unsigned short)new_rows,
+        .ws_col = (unsigned short)new_cols,
+        .ws_xpixel = (unsigned short)config->win_w,
+        .ws_ypixel = (unsigned short)config->win_h
+    };
+    if (ioctl(master_fd, TIOCSWINSZ, &ws) == -1) {
+        WARN_LOG("ioctl(TIOCSWINSZ) failed on resize: %s", strerror(errno));
+    }
+    *needs_render = true;
+}
+
+static bool drain_pty(int master_fd, Terminal* term)
+{
+    bool got_data = false;
+    char buf[4096];
+    for (;;) {
+        ssize_t bytes_read = read(master_fd, buf, sizeof(buf) - 1);
+        if (bytes_read > 0) {
+            buf[bytes_read] = '\0';
+            if (term->view_offset != 0) term->view_offset = 0;
+            terminal_handle_input(term, buf, bytes_read);
+            got_data = true;
+        } else if (bytes_read == 0) {
+            INFO_LOG("PTY closed. Shell likely exited.");
+            return false;
+        } else {
+            if (errno == EIO) {
+                INFO_LOG("PTY slave closed (shell exited).");
+                return false;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                ERROR_LOG("PTY read error: %s", strerror(errno));
+                return false;
+            }
+            break;
+        }
+    }
+    if (got_data) {
+        terminal_libvterm_flush_damage(term);
+    }
+    return true;
+}
+
 void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config, 
-                   int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk)
+                   int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk, pid_t child_pid)
 {
     bool running = true;
     bool needs_render = true;
     ButtonRepeatState repeat_state = { .is_held = false, .action = ACTION_NONE };
-    char buf[4096];
     
     // Initial render
     terminal_render(renderer, term, *font, *char_w, *char_h, osk, true, config->win_w, config->win_h);
@@ -464,6 +552,11 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
                     if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
                         event.window.event == SDL_WINDOWEVENT_SHOWN) {
                         needs_render = true;
+                    } else if (event.window.event == SDL_WINDOWEVENT_RESIZED ||
+                               event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                        SDL_Window* win = SDL_GetWindowFromID(event.window.windowID);
+                        handle_window_resize(win, renderer, config, term, osk,
+                                           char_w, char_h, master_fd, &needs_render);
                     }
                     break;
                     
@@ -490,42 +583,48 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
             }
         }
 
-        // Read from PTY if there's data available
-        struct timeval tv = { .tv_sec = 0, .tv_usec = 16000 }; // 16ms timeout
+        // Read from PTY — drain all available data before rendering to avoid
+        // redundant intermediate renders on burst output (embedded/battery optimization)
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = (needs_render || term->has_dirty_regions) ? 1000 : 16000;
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(master_fd, &fds);
         
         int ret = select(master_fd + 1, &fds, NULL, NULL, &tv);
         if (ret > 0 && FD_ISSET(master_fd, &fds)) {
-            ssize_t bytes_read = read(master_fd, buf, sizeof(buf) - 1);
-            if (bytes_read > 0) {
-                buf[bytes_read] = '\0';
-                
-                if (term->view_offset != 0) {
-                    term->view_offset = 0;
-                }
-                terminal_handle_input(term, buf, bytes_read);
-                needs_render = true;
-            } else if (bytes_read == 0) {
-                INFO_LOG("PTY closed. Shell likely exited.");
+            if (!drain_pty(master_fd, term)) {
                 running = false;
-            } else if (bytes_read < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                    ERROR_LOG("PTY read error: %s", strerror(errno));
-                    running = false;
-                }
+            } else {
+                needs_render = true;
             }
         } else if (ret < 0) {
-            ERROR_LOG("select() error: %s", strerror(errno));
+            if (errno != EINTR) {
+                ERROR_LOG("select() error: %s", strerror(errno));
+            }
         }
 
-        // Write terminal responses
-        if (term->response_len > 0) {
-            if (write(master_fd, term->response_buffer, term->response_len) < 0) {
-                perror("write to pty");
+        // Check if child process exited (covers cases where PTY doesn't get EOF/EIO)
+        if (running && child_pid > 0) {
+            int status;
+            pid_t wait_result = waitpid(child_pid, &status, WNOHANG);
+            if (wait_result == child_pid) {
+                INFO_LOG("Child process exited, status=%d", status);
+                running = false;
+            } else if (wait_result < 0 && errno != EINTR && errno != ECHILD) {
+                ERROR_LOG("waitpid() error: %s", strerror(errno));
             }
-            term->response_len = 0;
+        }
+
+        // Write terminal responses from libvterm output buffer to PTY
+        {
+            char vterm_out[4096];
+            size_t n = terminal_libvterm_flush_output(term, vterm_out, sizeof(vterm_out));
+            if (n > 0) {
+                ssize_t written = write(master_fd, vterm_out, n);
+                (void)written;
+            }
         }
 
         Uint32 current_time = SDL_GetTicks();
@@ -579,6 +678,14 @@ void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Conf
             SDL_Delay(target_frame_time - frame_time);
         }
     }
+
+    // Final render to show clean terminal state after child exits
+    if (term && renderer && *font) {
+        terminal_render(renderer, term, *font, *char_w, *char_h, osk,
+                        true, config->win_w, config->win_h);
+        SDL_RenderPresent(renderer);
+        SDL_Delay(50);
+    }
 }
 
 /**
@@ -607,9 +714,6 @@ void app_cleanup_resources(const Config* config, Terminal* term, OnScreenKeyboar
     
     // Clean up terminal
     if (term) {
-        if (term->glyph_cache) {
-            glyph_cache_cleanup(term->glyph_cache);
-        }
         if (term->screen_texture) {
             SDL_DestroyTexture(term->screen_texture);
         }
@@ -620,8 +724,18 @@ void app_cleanup_resources(const Config* config, Terminal* term, OnScreenKeyboar
     
     // Clean up child process
     if (pid > 0) {
-        kill(pid, SIGKILL);
-        waitpid(pid, NULL, 0);
+        int wstatus;
+        if (waitpid(pid, &wstatus, WNOHANG) == 0) {
+            // Child still alive — kill entire process group first
+            kill(-pid, SIGKILL);
+            kill(pid, SIGKILL);
+            // Wait up to 500ms with polling instead of blocking forever
+            for (int i = 0; i < 50; i++) {
+                if (waitpid(pid, &wstatus, WNOHANG) != 0) break;
+                struct timespec ts = {0, 10000000}; // 10ms
+                nanosleep(&ts, NULL);
+            }
+        }
     }
     
     if (master_fd != -1) {

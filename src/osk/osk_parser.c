@@ -65,7 +65,7 @@ SpecialKeySet process_layout_line(const char* input)
     SpecialKeySet new_set = { 
         .name = NULL, 
         .keys = NULL, 
-        .length = 0, 
+        .num_keys = 0, 
         .is_dynamic = true, 
         .file_path = NULL, 
         .active_mod_mask = OSK_MOD_NONE 
@@ -177,7 +177,7 @@ SpecialKeySet process_layout_line(const char* input)
 
         // Add the key to the set
         if (key_created) {
-            if (new_set.length >= capacity) {
+            if (new_set.num_keys >= capacity) {
                 capacity = capacity == 0 ? 16 : capacity * 2;
                 new_set.keys = realloc(new_set.keys, capacity * sizeof(SpecialKey));
                 if (!new_set.keys) {
@@ -188,11 +188,11 @@ SpecialKeySet process_layout_line(const char* input)
                     return empty_set;
                 }
             }
-            new_set.keys[new_set.length++] = new_key;
+            new_set.keys[new_set.num_keys++] = new_key;
         }
     }
 
-    DEBUG_LOG("Processed layout line with %d keys", new_set.length);
+    DEBUG_LOG("Processed layout line with %d keys", new_set.num_keys);
     return new_set;
 }
 
@@ -204,7 +204,7 @@ void free_special_key_set_contents(SpecialKeySet* set)
     }
 
     if (set->keys) {
-        for (int i = 0; i < set->length; i++) {
+        for (int i = 0; i < set->num_keys; i++) {
             if (set->keys[i].display_name) {
                 free(set->keys[i].display_name);
             }
@@ -223,7 +223,7 @@ void free_special_key_set_contents(SpecialKeySet* set)
         free(set->file_path);
         set->file_path = NULL;
     }
-    set->length = 0;
+    set->num_keys = 0;
 }
 
 void free_char_layout_rows(SpecialKeySet* rows, int num_rows)
@@ -339,7 +339,7 @@ bool parse_layout_content(const char* content, SpecialKeySet** temp_key_sets_by_
         } else {
             // Process layout line
             SpecialKeySet new_set = process_layout_line(line);
-            if (new_set.keys && new_set.length > 0) {
+            if (new_set.keys && new_set.num_keys > 0) {
                 new_set.active_mod_mask = current_active_mask;
 
                 // Find the appropriate modifier bucket

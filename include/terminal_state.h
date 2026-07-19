@@ -8,30 +8,9 @@
 #include <stdint.h> // For uint32_t, uint64_t
 
 // --- Constants ---
-#define CSI_MAX_PARAMS 16
-#define RESPONSE_BUFFER_SIZE 64
 #define CURSOR_BLINK_INTERVAL_MS 500 // Milliseconds for cursor blink toggle
 
 #define MOUSE_WHEEL_SCROLL_AMOUNT 3
-
-// Terminal mode flags (for compatibility)
-#define MODE_APP_CURSOR_KEYS 0x0001  // Application cursor keys mode
-
-// Key sequences for handle_key_down
-#define KEY_SEQ_UP_NORMAL    "\x1b[A"
-#define KEY_SEQ_UP_APP       "\x1bOA"
-#define KEY_SEQ_DOWN_NORMAL  "\x1b[B"
-#define KEY_SEQ_DOWN_APP     "\x1bOB"
-#define KEY_SEQ_RIGHT_NORMAL "\x1b[C"
-#define KEY_SEQ_RIGHT_APP    "\x1bOC"
-#define KEY_SEQ_LEFT_NORMAL  "\x1b[D"
-#define KEY_SEQ_LEFT_APP     "\x1bOD"
-#define KEY_SEQ_HOME_NORMAL  "\x1b[1~"
-#define KEY_SEQ_HOME_APP     "\x1bOH"
-#define KEY_SEQ_END_NORMAL   "\x1b[4~"
-#define KEY_SEQ_END_APP      "\x1bOF"
-#define KEY_SEQ_PGUP_NORMAL  "\x1b[5~"
-#define KEY_SEQ_PGDN_NORMAL  "\x1b[6~"
 
 // --- Data Structures ---
 
@@ -114,82 +93,22 @@ typedef struct {
     int rows;
     int cursor_x;
     int cursor_y;
-    SDL_Color current_fg;
-    SDL_Color current_bg;
 
     // Color palettes
     SDL_Color colors[16];
-    SDL_Color xterm_colors[256];
     SDL_Color default_fg;
     SDL_Color cursor_color;
     SDL_Color default_bg;
 
-    unsigned char current_attributes; // Current attributes for new characters
-    Glyph *grid;
-    Glyph *alt_grid; // The alternate screen buffer
-    Glyph *normal_grid_saved; // Saved normal grid for DECSET 1049 restore
-
-    // Scrollback additions
-    int scrollback;      // Number of lines in scrollback buffer
-    int total_lines;     // rows + scrollback
-    int top_line;        // Index of the top-most line of the logical screen in the circular buffer
+    // Scrollback
+    int scrollback;      // Max scrollback lines (config value)
     int view_offset;     // How many lines we are scrolled up from the bottom. 0 = not scrolled.
-    int history_size;    // Number of lines currently in the scrollback history
-
-    enum {
-        STATE_NORMAL,
-        STATE_ESCAPE,
-        STATE_CSI,
-        STATE_OSC,
-        STATE_DCS
-    } parse_state;
-    int csi_params[CSI_MAX_PARAMS];
-    int csi_param_count;
-    char osc_buffer[256];
-    int osc_len;
-    char csi_private_marker; // To store '?' for DEC private modes
-    char csi_intermediate_chars[4]; // For intermediate CSI bytes like ' '
-    int csi_intermediate_count;
-
-    // Saved cursor position
-    int saved_cursor_x;
-    int saved_cursor_y;
-
-    // Scrolling region (0-based inclusive indices)
-    int scroll_top;    // 0-based top line of the scroll region
-    int scroll_bottom; // 0-based bottom line of the scroll region (inclusive)
 
     // Terminal modes
     CursorStyle cursor_style;
     bool cursor_style_blinking;
-    bool application_cursor_keys_mode; // DECCKM: Cursor Key Mode
     bool cursor_visible;               // DECTCEM: Text Cursor Enable Mode (CSI ? 25 h/l)
-    bool application_keypad_mode;      // DECNKM: Numeric Keypad Mode
     bool alt_screen_active;            // True if alternate screen is active
-    bool autowrap_mode;                // DECAWM: Autowrap mode (CSI ? 7 h/l)
-    bool wrap_pending;                 // True if cursor is at EOL and next char should wrap
-    bool insert_mode;                  // IRM: Insert/Replace Mode (CSI 4 h/l)
-    bool origin_mode;                  // DECOM: Origin Mode (CSI ? 6 h/l)
-    
-    // Compatibility mode field
-    int mode;                          // Bit field of mode flags for compatibility
-
-    // VT100 Character Set Support
-    // 'B' = US ASCII, '0' = DEC Special Graphics
-    char charsets[2]; // G0, G1 character sets.
-    int active_charset; // 0 for G0, 1 for G1
-
-    // UTF-8 decoding state
-    uint32_t utf8_codepoint;
-    int utf8_bytes_to_read;
-
-    // For responding to DSR (Device Status Report)
-    char response_buffer[RESPONSE_BUFFER_SIZE]; // Buffer for responses like cursor position report
-    int response_len;
-
-    // Saved cursor position for normal screen
-    int normal_saved_cursor_x;
-    int normal_saved_cursor_y;
 
     // Performance
     GlyphCache* glyph_cache;
@@ -208,18 +127,19 @@ typedef struct {
 
     // Color palette and background
     SDL_Color palette[256];  // Color palette for indexed colors
-    char* background_path;  // Path to background image
 
     // Double buffering
     SDL_Texture* screen_texture;
     bool full_redraw_needed;
     
     // Performance optimization flags
-    bool skip_render_frame;  // Skip rendering this frame for power saving
     Uint32 last_render_time; // Time of last render for adaptive FPS
 
     // Background image
     SDL_Texture* background_texture;
+
+    // libvterm backend
+    void* backend;
 } Terminal;
 
 // --- Main Configuration Struct ---
@@ -236,6 +156,7 @@ typedef struct {
     int target_fps;
     bool read_only;
     bool no_credit;
+    int log_level;             // Runtime log level (0=debug..4=fatal)
     char* osk_layout_path;      // Path to a custom OSK character layout file
 
     // New: For handling --key-set arguments
@@ -259,8 +180,7 @@ typedef struct SpecialKey SpecialKey;
 typedef struct {
     char* name;          // Display name of the set (e.g., "ACTION", "NAV", "bash")
     SpecialKey* keys; // Array of SpecialKey structs
-    int length;          // Number of keys in this set
-    int num_keys;        // Alternative field name for compatibility
+    int num_keys;        // Number of keys in this set
     bool is_dynamic;     // True if this set was loaded from a file and needs to be freed
     char* file_path;     // Path to the .keys file if loaded dynamically
     int active_mod_mask; // Modifiers that are active for this layer
@@ -345,11 +265,9 @@ typedef struct {
     bool show_special_set_name; // For special mode: show set name only on switch
 
     // For managing dynamic key sets from key-set.list
-    SpecialKeySet* available_dynamic_key_sets; // List of all key sets defined in key-set.list
-    int num_available_dynamic_key_sets;
     char** loaded_key_set_names; // Names of currently loaded dynamic key sets
     int num_loaded_key_sets;
-    
+
     // Available dynamic key sets
     char** available_sets;
     int num_available_sets;
@@ -365,7 +283,8 @@ typedef enum {
     CMD_CURSOR_CYCLE_STYLE,
     CMD_TERMINAL_RESET,
     CMD_TERMINAL_CLEAR,
-    CMD_OSK_TOGGLE_POSITION
+    CMD_OSK_TOGGLE_POSITION,
+    CMD_RELOAD_THEME
 } InternalCommand;
 
 typedef struct SpecialKey {
@@ -392,11 +311,10 @@ typedef enum {
     ACTION_LEFT,
     ACTION_RIGHT,
 
-    // Face Buttons (mapped to their primary function)
+    // Face Buttons
     ACTION_SELECT,      // A button: Selects/types in OSK
-    ACTION_BACK,        // B button: Backspace/Cancel
     ACTION_SPACE,       // Y button: Inserts a space
-    ACTION_TAB,         // Controller 'Back' button or equivalent: Inserts a tab
+    ACTION_TAB,         // Controller 'Back' button: Inserts a tab
 
     // Scrolling & OSK Actions
     ACTION_SCROLL_UP,       // L-Shoulder: Scrolls up terminal view
@@ -405,30 +323,11 @@ typedef enum {
     // Center Buttons
     ACTION_TOGGLE_OSK,  // F12 or Controller X button
     ACTION_ENTER,       // Start button
-    // ACTION_EXIT,        // Guide button: Quit application (Now handled by combo)
-    
+
     // Additional Actions for Keyboard Input
     ACTION_ESCAPE,
     ACTION_BACKSPACE,
-    ACTION_COPY,
-    ACTION_PASTE,
-    ACTION_UNDO,
-    ACTION_REDO,
-    ACTION_MENU,
-    ACTION_OSK_PREV_ROW,
-    ACTION_OSK_NEXT_ROW,
-    ACTION_CURSOR_UP,
-    ACTION_CURSOR_DOWN,
-    ACTION_CURSOR_LEFT,
-    ACTION_CURSOR_RIGHT,
-    ACTION_FIND,
-    ACTION_SAVE,
-    ACTION_OPEN,
-    ACTION_QUIT,
-    ACTION_WINDOW_NEXT,
-    ACTION_WINDOW_CLOSE,
-    ACTION_COPY_COLUMN,
-    ACTION_PASTE_COLUMN,
+    ACTION_RELOAD_THEME,
 } TerminalAction;
 
 // --- Input Mapping Configuration ---

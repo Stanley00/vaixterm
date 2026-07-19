@@ -240,6 +240,12 @@ void osk_init_all_sets(OnScreenKeyboard* osk)
         if (osk->control_set.keys) {
             memcpy(osk->control_set.keys, osk_special_set_action_keys, sizeof(osk_special_set_action_keys));
             osk->control_set.num_keys = sizeof(osk_special_set_action_keys) / sizeof(osk_special_set_action_keys[0]);
+            for (int i = 0; i < osk->control_set.num_keys; i++) {
+                if (osk->control_set.keys[i].display_name)
+                    osk->control_set.keys[i].display_name = strdup(osk->control_set.keys[i].display_name);
+                if (osk->control_set.keys[i].sequence)
+                    osk->control_set.keys[i].sequence = strdup(osk->control_set.keys[i].sequence);
+            }
         }
     }
 
@@ -282,8 +288,9 @@ void osk_add_custom_set(OnScreenKeyboard* osk, const char* path)
         if (line[0] == '\0' || line[0] == '#') continue;
 
         if (parse_key_set_line(line, &key)) {
-            // Add to control set
             osk_rebuild_control_set_dynamic_keys(osk);
+            free(key.display_name);
+            free(key.sequence);
             found_keys = true;
         }
     }

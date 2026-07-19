@@ -57,6 +57,7 @@
 
 
 // --- Default Terminal Configuration ---
+#define VERSION "1.0.0"
 #define DEFAULT_WINDOW_WIDTH 640
 #define DEFAULT_WINDOW_HEIGHT 480
 #define DEFAULT_FONT_SIZE_POINTS 12
@@ -68,5 +69,6 @@
 // The initial delay before a held button starts repeating.
 #define BUTTON_REPEAT_INITIAL_DELAY_MS 250
 // The interval between subsequent repeats of a held button.
-#define BUTTON_REPEAT_INTERVAL_MS 75
+#define BUTTON_REPEAT_INTERVAL_MS 100
+
 #endif // INPUT_CONFIG_H

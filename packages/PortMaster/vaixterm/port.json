@@ -1,9 +1,9 @@
 {
   "version": 4,
-  "name": "vaixterm",
+  "name": "vaixterm.zip",
   "items": [
     "VaixTerm.sh",
-    "vaixterm"
+    "vaixterm/"
   ],
   "items_opt": [],
   "attr": {
@@ -11,22 +11,20 @@
     "porter": [
       "Stanley00"
     ],
-    "desc": "VaixTerm: A Robust SDL2 Terminal for Handheld & Embedded Systems",
+    "desc": "A robust SDL2 terminal emulator for handheld and embedded systems. Features on-screen keyboard, gamepad support, 256-color palette, and configurable themes.",
     "desc_md": null,
-    "inst": "Launch from PortMaster. Follow credit screen on how to use.",
+    "inst": "Ready to run. Launch from PortMaster. Use the on-screen keyboard or connected gamepad for input.",
     "inst_md": null,
     "genres": [
       "other"
     ],
-    "image": null,
+    "image": {},
     "rtr": true,
     "exp": false,
     "runtime": [],
     "store": [],
     "availability": "full",
-    "reqs": [
-      "hires"
-    ],
+    "reqs": [],
     "arch": [
       "aarch64"
     ],

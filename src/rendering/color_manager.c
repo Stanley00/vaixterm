@@ -55,69 +55,6 @@ bool parse_color_string(const char* hex_str, SDL_Color* color)
     return false;
 }
 
-bool load_colorscheme(Terminal* term, const char* path)
-{
-    if (!term || !path) {
-        ERROR_LOG("Invalid parameters: term=%p, path=%p", (void*)term, (void*)path);
-        return false;
-    }
-
-    FILE* file = fopen(path, "r");
-    if (!file) {
-        ERROR_LOG("Failed to open colorscheme file: %s", path);
-        return false;
-    }
-
-    char line[256];
-    bool success = true;
-
-    while (fgets(line, sizeof(line), file)) {
-        // Remove newline and skip empty lines/comments
-        char* newline = strchr(line, '\n');
-        if (newline) *newline = '\0';
-        
-        // Skip whitespace and comments
-        char* p = line;
-        while (*p && isspace(*p)) p++;
-        if (*p == '\0' || *p == '#') continue;
-
-        // Parse key=value format
-        char* equals = strchr(p, '=');
-        if (!equals) continue;
-
-        *equals = '\0';
-        char* key = p;
-        char* value = equals + 1;
-
-        // Trim whitespace
-        while (*key && isspace(*key)) key++;
-        while (*value && isspace(*value)) value++;
-
-        SDL_Color color;
-        if (parse_color_string(value, &color)) {
-            if (strcmp(key, "foreground") == 0) {
-                term->default_fg = color;
-            } else if (strcmp(key, "background") == 0) {
-                term->default_bg = color;
-            } else if (strcmp(key, "cursor") == 0) {
-                term->cursor_color = color;
-            } else if (strncmp(key, "color", 5) == 0) {
-                // Parse color0, color1, etc.
-                int index = atoi(key + 5);
-                if (index >= 0 && index < 16) {
-                    term->palette[index] = color;
-                }
-            }
-        } else {
-            WARN_LOG("Failed to parse color: %s=%s", key, value);
-        }
-    }
-
-    fclose(file);
-    INFO_LOG("Loaded colorscheme: %s", path);
-    return success;
-}
-
 SDL_Color get_foreground_color(Terminal* term, Glyph* glyph)
 {
     if (!term || !glyph) {
@@ -211,70 +148,6 @@ void apply_sgr_colors(Terminal* term, Glyph* glyph, SDL_Color* fg, SDL_Color* bg
     }
 }
 
-bool load_background_image(Terminal* term, SDL_Renderer* renderer, const char* path)
-{
-    if (!term || !renderer || !path) {
-        ERROR_LOG("Invalid parameters: term=%p, renderer=%p, path=%p", (void*)term, (void*)renderer, (void*)path);
-        return false;
-    }
-
-    // Free existing background
-    free_background_image(term);
-
-    // Load image
-    SDL_Surface* surface = SDL_LoadBMP(path);
-    if (!surface) {
-        ERROR_LOG("Failed to load background image: %s", SDL_GetError());
-        return false;
-    }
-
-    // Create texture
-    term->background_texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (!term->background_texture) {
-        ERROR_LOG("Failed to create background texture: %s", SDL_GetError());
-        SDL_FreeSurface(surface);
-        return false;
-    }
-
-    SDL_FreeSurface(surface);
-
-    // Store path for reloading
-    term->background_path = strdup(path);
-    if (!term->background_path) {
-        ERROR_LOG("Failed to allocate background path");
-        free_background_image(term);
-        return false;
-    }
-
-    INFO_LOG("Loaded background image: %s", path);
-    return true;
-}
-
-void reload_background_texture(Terminal* term, SDL_Renderer* renderer, const char* path)
-{
-    load_background_image(term, renderer, path);
-}
-
-void free_background_image(Terminal* term)
-{
-    if (!term) {
-        ERROR_LOG("Invalid parameter: term=%p", (void*)term);
-        return;
-    }
-
-    if (term->background_texture) {
-        SDL_DestroyTexture(term->background_texture);
-        term->background_texture = NULL;
-    }
-
-    if (term->background_path) {
-        free(term->background_path);
-        term->background_path = NULL;
-    }
-
-    DEBUG_LOG("Background image freed");
-}
-
 bool validate_color(const SDL_Color* color)
 {
     if (!color) {
@@ -282,8 +155,8 @@ bool validate_color(const SDL_Color* color)
         return false;
     }
 
-    // All color components should be in valid range (0-255)
-    return color->r <= 255 && color->g <= 255 && color->b <= 255 && color->a <= 255;
+    // SDL_Color components are uint8_t, always in valid range (0-255)
+    return true;
 }
 
 SDL_Color rgb_to_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -330,29 +203,4 @@ bool hex_to_rgb(const char* hex_str, uint8_t* r, uint8_t* g, uint8_t* b, uint8_t
     }
 
     return true;
-}
-
-SDL_Color blend_colors(SDL_Color color1, SDL_Color color2, float factor)
-{
-    if (factor < 0.0f) factor = 0.0f;
-    if (factor > 1.0f) factor = 1.0f;
-
-    SDL_Color result;
-    result.r = (uint8_t)(color1.r * (1.0f - factor) + color2.r * factor);
-    result.g = (uint8_t)(color1.g * (1.0f - factor) + color2.g * factor);
-    result.b = (uint8_t)(color1.b * (1.0f - factor) + color2.b * factor);
-    result.a = (uint8_t)(color1.a * (1.0f - factor) + color2.a * factor);
-
-    return result;
-}
-
-void get_default_colors(SDL_Color* fg, SDL_Color* bg)
-{
-    if (!fg || !bg) {
-        ERROR_LOG("Invalid parameters: fg=%p, bg=%p", (void*)fg, (void*)bg);
-        return;
-    }
-
-    *fg = rgb_to_color(255, 255, 255, 255); // White
-    *bg = rgb_to_color(0, 0, 0, 255);       // Black
 }

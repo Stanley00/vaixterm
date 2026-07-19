@@ -61,7 +61,7 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config);
  * @param master_fd PTY master file descriptor.
  * @return true to continue, false to exit.
  */
-bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config* config, 
+bool app_run_credit_screen(SDL_Window* win, SDL_Renderer* renderer, TTF_Font* font, const Config* config, 
                           pid_t pid, Terminal* term, OnScreenKeyboard* osk, int master_fd);
 
 /**
@@ -74,9 +74,10 @@ bool app_run_credit_screen(SDL_Renderer* renderer, TTF_Font* font, const Config*
  * @param char_h Character height pointer (may be modified).
  * @param master_fd PTY master file descriptor.
  * @param osk OSK instance.
+ * @param child_pid Child process ID for exit detection.
  */
 void app_main_loop(SDL_Renderer* renderer, Terminal* term, TTF_Font** font, Config* config, 
-                   int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk);
+                   int* char_w, int* char_h, int master_fd, OnScreenKeyboard* osk, pid_t child_pid);
 
 /**
  * @brief Cleans up all allocated resources.

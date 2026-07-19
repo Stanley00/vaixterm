@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "config_manager.h"
+#include "error_codes.h"
 #include "config.h"
 
 /**
@@ -27,6 +28,7 @@ void config_init_defaults(Config* config)
     config->target_fps = 30;
     config->read_only = false;
     config->no_credit = false;
+    config->log_level = LOG_LEVEL_WARN;
     config->osk_layout_path = NULL;
     config->key_sets = NULL;
     config->num_key_sets = 0;
@@ -41,46 +43,37 @@ bool config_validate(Config* config)
     
     // Validate window dimensions
     if (config->win_w < 320 || config->win_w > 4096) {
-        fprintf(stderr, "Warning: Invalid window width %d, using default %d\n", 
-                config->win_w, DEFAULT_WINDOW_WIDTH);
+        WARN_LOG("Invalid window width %d, using default %d", config->win_w, DEFAULT_WINDOW_WIDTH);
         config->win_w = DEFAULT_WINDOW_WIDTH;
         valid = false;
     }
     
     if (config->win_h < 240 || config->win_h > 4096) {
-        fprintf(stderr, "Warning: Invalid window height %d, using default %d\n", 
-                config->win_h, DEFAULT_WINDOW_HEIGHT);
+        WARN_LOG("Invalid window height %d, using default %d", config->win_h, DEFAULT_WINDOW_HEIGHT);
         config->win_h = DEFAULT_WINDOW_HEIGHT;
         valid = false;
     }
     
-    // Validate font size
     if (config->font_size < 6 || config->font_size > 72) {
-        fprintf(stderr, "Warning: Invalid font size %d, using default %d\n", 
-                config->font_size, DEFAULT_FONT_SIZE_POINTS);
+        WARN_LOG("Invalid font size %d, using default %d", config->font_size, DEFAULT_FONT_SIZE_POINTS);
         config->font_size = DEFAULT_FONT_SIZE_POINTS;
         valid = false;
     }
     
-    // Validate scrollback lines
     if (config->scrollback_lines < 0 || config->scrollback_lines > 100000) {
-        fprintf(stderr, "Warning: Invalid scrollback lines %d, using default %d\n", 
-                config->scrollback_lines, DEFAULT_SCROLLBACK_LINES);
+        WARN_LOG("Invalid scrollback lines %d, using default %d", config->scrollback_lines, DEFAULT_SCROLLBACK_LINES);
         config->scrollback_lines = DEFAULT_SCROLLBACK_LINES;
         valid = false;
     }
     
-    // Validate FPS
     if (config->target_fps < 0 || config->target_fps > 120) {
-        fprintf(stderr, "Warning: Invalid target FPS %d, using default 30\n", 
-                config->target_fps);
+        WARN_LOG("Invalid target FPS %d, using default 30", config->target_fps);
         config->target_fps = 30;
         valid = false;
     }
     
-    // Validate font path exists
     if (!config->font_path || config->font_path[0] == '\0') {
-        fprintf(stderr, "Warning: Empty font path, using default\n");
+        WARN_LOG("Empty font path, using default");
         free(config->font_path);
         config->font_path = strdup(DEFAULT_FONT_FILE_PATH);
         valid = false;
@@ -129,6 +122,14 @@ void config_parse_args(int argc, char* argv[], Config* config)
             config->no_credit = true;
         } else if (strcmp(argv[i], "--force-full-render") == 0) {
             config->force_full_render = true;
+        } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
+            const char* lvl = argv[++i];
+            if (strcasecmp(lvl, "debug") == 0) config->log_level = LOG_LEVEL_DEBUG;
+            else if (strcasecmp(lvl, "info") == 0) config->log_level = LOG_LEVEL_INFO;
+            else if (strcasecmp(lvl, "warn") == 0) config->log_level = LOG_LEVEL_WARN;
+            else if (strcasecmp(lvl, "error") == 0) config->log_level = LOG_LEVEL_ERROR;
+            else if (strcasecmp(lvl, "fatal") == 0) config->log_level = LOG_LEVEL_FATAL;
+            else { fprintf(stderr, "Invalid log level: %s (use debug/info/warn/error/fatal)\n", lvl); exit(1); }
         } else if (strcmp(argv[i], "--key-set") == 0 && i + 1 < argc) {
             const char* arg = argv[++i];
             bool load = true;
@@ -144,7 +145,7 @@ void config_parse_args(int argc, char* argv[], Config* config)
             config->num_key_sets++;
             config->key_sets = realloc(config->key_sets, sizeof(struct KeySetArg) * (size_t)config->num_key_sets);
             if (!config->key_sets) {
-                fprintf(stderr, "Fatal: Could not allocate memory for key set arguments.\n");
+                ERROR_LOG("Could not allocate memory for key set arguments");
                 exit(1);
             }
             config->key_sets[config->num_key_sets - 1].path = strdup(path);
@@ -152,6 +153,9 @@ void config_parse_args(int argc, char* argv[], Config* config)
         } else if (strcmp(argv[i], "--osk-layout") == 0 && i + 1 < argc) {
             free(config->osk_layout_path);
             config->osk_layout_path = strdup(argv[++i]);
+        } else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+            fprintf(stdout, "vaixterm %s\n", VERSION);
+            exit(0);
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-?") == 0) {
             config_print_help(argv[0]);
             exit(0);
@@ -182,9 +186,11 @@ void config_print_help(const char* program_name)
     fprintf(stdout, "  --fps <value>              Set framerate cap (default: 30 fps).\n");
     fprintf(stdout, "  --read-only                Run in read-only mode (input disabled).\n");
     fprintf(stdout, "  --no-credit                Start shell directly, skip credits.\n");
+    fprintf(stdout, "  --log-level <level>        Set log verbosity: debug/info/warn/error/fatal (default: warn).\n");
     fprintf(stdout, "  --force-full-render        Force a full re-render on every frame.\n");
     fprintf(stdout, "  --key-set [-|+]<path>      Add key set ('-': available, '+': load).\n");
     fprintf(stdout, "  --osk-layout <path>        Use a custom OSK layout file.\n");
+    fprintf(stdout, "  --version                  Show version and exit.\n");
 }
 
 /**
@@ -215,4 +221,122 @@ void config_cleanup(Config* config)
     config->osk_layout_path = NULL;
     config->key_sets = NULL;
     config->num_key_sets = 0;
+}
+
+/**
+ * @brief Trims whitespace from a string in-place.
+ */
+static void trim_whitespace(char* str)
+{
+    if (!str) return;
+    char* end = str + strlen(str) - 1;
+    while (end >= str && isspace(*end)) {
+        *end-- = '\0';
+    }
+    char* start = str;
+    while (*start && isspace(*start)) start++;
+    if (start != str) {
+        memmove(str, start, strlen(start) + 1);
+    }
+}
+
+/**
+ * @brief Loads configuration from a file.
+ * Config file format: simple key=value pairs, lines starting with # are comments.
+ * Search order: $XDG_CONFIG_HOME/vaixterm/vaixterm.conf, then ~/.config/vaixterm/vaixterm.conf
+ */
+bool config_load_from_file(Config* config, const char* explicit_path)
+{
+    char path[4096];
+    FILE* file = NULL;
+    
+    if (explicit_path) {
+        file = fopen(explicit_path, "r");
+        if (file) {
+            strncpy(path, explicit_path, sizeof(path) - 1);
+            path[sizeof(path) - 1] = '\0';
+        }
+    } else {
+        // Try XDG config directory first
+        const char* xdg_config = getenv("XDG_CONFIG_HOME");
+        if (xdg_config) {
+            snprintf(path, sizeof(path), "%s/vaixterm/vaixterm.conf", xdg_config);
+            file = fopen(path, "r");
+        }
+        if (!file) {
+            // Fall back to ~/.config/vaixterm/vaixterm.conf
+            const char* home = getenv("HOME");
+            if (home) {
+                snprintf(path, sizeof(path), "%s/.config/vaixterm/vaixterm.conf", home);
+                file = fopen(path, "r");
+            }
+        }
+    }
+    
+    if (!file) {
+        return false; // No config file found, use defaults
+    }
+    
+    char line[1024];
+    while (fgets(line, sizeof(line), file)) {
+        trim_whitespace(line);
+        if (line[0] == '\0' || line[0] == '#') continue;
+        
+        char* equals = strchr(line, '=');
+        if (!equals) continue;
+        *equals = '\0';
+        char* key = line;
+        char* value = equals + 1;
+        trim_whitespace(key);
+        trim_whitespace(value);
+        
+        // Remove surrounding quotes if present
+        if (value[0] == '"' && value[strlen(value) - 1] == '"') {
+            value[strlen(value) - 1] = '\0';
+            value++;
+        }
+        
+        if (strcmp(key, "width") == 0) {
+            config->win_w = atoi(value);
+        } else if (strcmp(key, "height") == 0) {
+            config->win_h = atoi(value);
+        } else if (strcmp(key, "font") == 0) {
+            free(config->font_path);
+            config->font_path = strdup(value);
+        } else if (strcmp(key, "font_size") == 0) {
+            config->font_size = atoi(value);
+        } else if (strcmp(key, "scrollback") == 0) {
+            config->scrollback_lines = atoi(value);
+        } else if (strcmp(key, "exec") == 0) {
+            free(config->custom_command);
+            config->custom_command = strdup(value);
+        } else if (strcmp(key, "background") == 0) {
+            free(config->background_image_path);
+            config->background_image_path = strdup(value);
+        } else if (strcmp(key, "colorscheme") == 0) {
+            free(config->colorscheme_path);
+            config->colorscheme_path = strdup(value);
+        } else if (strcmp(key, "fps") == 0) {
+            config->target_fps = atoi(value);
+        } else if (strcmp(key, "read_only") == 0) {
+            config->read_only = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        } else if (strcmp(key, "no_credit") == 0) {
+            config->no_credit = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        } else if (strcmp(key, "force_full_render") == 0) {
+            config->force_full_render = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);
+        } else if (strcmp(key, "log_level") == 0) {
+            if (strcasecmp(value, "debug") == 0) config->log_level = LOG_LEVEL_DEBUG;
+            else if (strcasecmp(value, "info") == 0) config->log_level = LOG_LEVEL_INFO;
+            else if (strcasecmp(value, "warn") == 0) config->log_level = LOG_LEVEL_WARN;
+            else if (strcasecmp(value, "error") == 0) config->log_level = LOG_LEVEL_ERROR;
+            else if (strcasecmp(value, "fatal") == 0) config->log_level = LOG_LEVEL_FATAL;
+        } else if (strcmp(key, "osk_layout") == 0) {
+            free(config->osk_layout_path);
+            config->osk_layout_path = strdup(value);
+        }
+    }
+    
+    fclose(file);
+    INFO_LOG("Loaded config from: %s", path);
+    return true;
 }

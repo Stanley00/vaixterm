@@ -1,6 +1,9 @@
 #include "input_mapper.h"
 #include "error_codes.h"
+#include "error_codes.h"
 #include "terminal.h"
+#include "terminal_libvterm.h"
+#include "event_handler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,12 +11,6 @@
 #include <SDL.h>
 
 // External mappings from original input.c
-extern const ControllerButtonMapping controller_button_map[];
-extern const KeyMapping key_map[];
-extern const int num_controller_button_mappings;
-extern const int num_key_mappings;
-
-// Default controller button mappings
 const ControllerButtonMapping controller_button_map[] = {
     {SDL_CONTROLLER_BUTTON_A, ACTION_SELECT},
     {SDL_CONTROLLER_BUTTON_B, ACTION_BACKSPACE},  // Fixed: B should be backspace
@@ -41,78 +38,6 @@ TerminalAction map_cbutton_to_action(SDL_GameControllerButton button)
     }
     DEBUG_LOG("Controller button %d has no mapping", button);
     return ACTION_NONE;
-}
-
-SDL_Keymod get_combined_modifiers(const OnScreenKeyboard* osk)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return KMOD_NONE;
-    }
-
-    SDL_Keymod combined = KMOD_NONE;
-    if (osk->mod_ctrl) combined |= KMOD_CTRL;
-    if (osk->mod_alt) combined |= KMOD_ALT;
-    if (osk->mod_gui) combined |= KMOD_GUI;
-    if (osk->mod_shift) combined |= KMOD_SHIFT;
-
-    return combined;
-}
-
-SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return KMOD_NONE;
-    }
-
-    SDL_Keymod effective = get_combined_modifiers(osk);
-    
-    // Clear one-shot modifiers after use
-    if (osk->mod_alt) {
-        // Alt is one-shot, clear it
-        // Note: This would need to be handled in the calling function
-    }
-    if (osk->mod_gui) {
-        // GUI is one-shot, clear it
-        // Note: This would need to be handled in the calling function
-    }
-
-    return effective;
-}
-
-void clear_one_shot_modifiers(OnScreenKeyboard* osk, bool* needs_render_ptr)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return;
-    }
-
-    bool cleared = false;
-    if (osk->mod_alt) {
-        osk->mod_alt = false;
-        cleared = true;
-    }
-    if (osk->mod_gui) {
-        osk->mod_gui = false;
-        cleared = true;
-    }
-
-    if (cleared && needs_render_ptr) {
-        *needs_render_ptr = true;
-    }
-
-    DEBUG_LOG("Cleared one-shot modifiers");
-}
-
-SDL_Keymod osk_mask_to_sdl_mod(int osk_mask)
-{
-    SDL_Keymod sdl_mod = KMOD_NONE;
-    if (osk_mask & OSK_MOD_CTRL) sdl_mod |= KMOD_CTRL;
-    if (osk_mask & OSK_MOD_ALT) sdl_mod |= KMOD_ALT;
-    if (osk_mask & OSK_MOD_GUI) sdl_mod |= KMOD_GUI;
-    if (osk_mask & OSK_MOD_SHIFT) sdl_mod |= KMOD_SHIFT;
-    return sdl_mod;
 }
 
 void init_input_devices(OnScreenKeyboard* osk, const Config* config)
@@ -196,48 +121,6 @@ bool should_process_key(const SDL_KeyboardEvent* key)
     return true;
 }
 
-TerminalAction get_key_combination_action(SDL_Keycode keycode, SDL_Keymod mod)
-{
-    // Check for specific key combinations
-    if (mod & KMOD_CTRL) {
-        switch (keycode) {
-            case SDLK_c: return ACTION_COPY;
-            case SDLK_v: return ACTION_PASTE;
-            case SDLK_z: return ACTION_UNDO;
-            case SDLK_y: return ACTION_REDO;
-            case SDLK_f: return ACTION_FIND;
-            case SDLK_s: return ACTION_SAVE;
-            case SDLK_o: return ACTION_OPEN;
-            case SDLK_q: return ACTION_QUIT;
-            default: break;
-        }
-    }
-
-    if (mod & KMOD_ALT) {
-        switch (keycode) {
-            case SDLK_TAB: return ACTION_WINDOW_NEXT;
-            case SDLK_F4: return ACTION_WINDOW_CLOSE;
-            default: break;
-        }
-    }
-
-    if (mod & (KMOD_CTRL | KMOD_SHIFT)) {
-        switch (keycode) {
-            case SDLK_c: return ACTION_COPY_COLUMN;
-            case SDLK_v: return ACTION_PASTE_COLUMN;
-            case SDLK_z: return ACTION_REDO;
-            default: break;
-        }
-    }
-
-    return ACTION_NONE;
-}
-
-bool is_modifier_pressed(SDL_Keymod mod, SDL_Keymod modifier)
-{
-    return (mod & modifier) != 0;
-}
-
 bool is_modifier_key(SDL_Keycode keycode)
 {
     switch (keycode) {
@@ -257,43 +140,36 @@ bool is_modifier_key(SDL_Keycode keycode)
 }
 
 void process_direct_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int master_fd) {
-    (void)osk;
-    if (!term || !needs_render) {
-        return;
-    }
+    (void)osk; (void)master_fd;
+    if (!term || !needs_render) return;
     
-    char seq[32];
     switch (action) {
         case ACTION_UP:
-            strcpy(seq, "\033[A");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_UP, VTERM_MOD_NONE);
             break;
         case ACTION_DOWN:
-            strcpy(seq, "\033[B");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_DOWN, VTERM_MOD_NONE);
             break;
         case ACTION_LEFT:
-            strcpy(seq, "\033[D");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_LEFT, VTERM_MOD_NONE);
             break;
         case ACTION_RIGHT:
-            strcpy(seq, "\033[C");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_RIGHT, VTERM_MOD_NONE);
             break;
         case ACTION_BACKSPACE:
-            write(master_fd, "\177", 1);
+            terminal_libvterm_key(term, VTERM_KEY_BACKSPACE, VTERM_MOD_NONE);
             break;
         case ACTION_ENTER:
-            write(master_fd, "\r", 1);
+            terminal_libvterm_key(term, VTERM_KEY_ENTER, VTERM_MOD_NONE);
             break;
         case ACTION_TAB:
-            write(master_fd, "\t", 1);
+            terminal_libvterm_key(term, VTERM_KEY_TAB, VTERM_MOD_NONE);
             break;
         case ACTION_ESCAPE:
-            write(master_fd, "\033", 1);
+            terminal_libvterm_key(term, VTERM_KEY_ESCAPE, VTERM_MOD_NONE);
             break;
         case ACTION_SPACE:
-            write(master_fd, " ", 1);
+            terminal_libvterm_unichar(term, ' ', VTERM_MOD_NONE);
             break;
         default:
             break;
