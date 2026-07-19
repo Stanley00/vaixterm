@@ -16,11 +16,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int win_h, int char_h)
+int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int win_h, int bar_h)
 {
-    if (!osk || !term || win_h <= 0 || char_h <= 0) {
-        ERROR_LOG("Invalid parameters: osk=%p, term=%p, win_h=%d, char_h=%d", 
-                  (void*)osk, (void*)term, win_h, char_h);
+    if (!osk || !term || win_h <= 0 || bar_h <= 0) {
+        ERROR_LOG("Invalid parameters: osk=%p, term=%p, win_h=%d, bar_h=%d", 
+                  (void*)osk, (void*)term, win_h, bar_h);
         return 0;
     }
 
@@ -29,7 +29,7 @@ int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int wi
     if (osk->position_mode == OSK_POSITION_SAME) {
         // SAME side as cursor
         if (cursor_in_bottom_half) {
-            return win_h - char_h; // OSK at bottom
+            return win_h - bar_h; // OSK at bottom
         } else {
             return 0; // OSK at top
         }
@@ -38,7 +38,7 @@ int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int wi
         if (cursor_in_bottom_half) {
             return 0; // OSK at top
         } else {
-            return win_h - char_h; // OSK at bottom
+            return win_h - bar_h; // OSK at bottom
         }
     }
 }
@@ -50,15 +50,15 @@ int get_current_num_char_rows(const OnScreenKeyboard* osk)
         return 0;
     }
 
-    int num_char_rows = osk->num_char_rows;
-    int effective_num_rows = num_char_rows;
+    // Use the live modifier state (one-shot mod_ flags toggled in the OSK),
+    // not osk->modifier_mask which is never updated.
+    int mod_mask = get_physical_modifier_mask(osk);
 
-    // If SHIFT is active, use the shifted layout if it exists
-    if (osk->modifier_mask & OSK_MOD_SHIFT && osk->shifted_char_sets) {
-        effective_num_rows = osk->num_shifted_rows;
+    if (mod_mask & OSK_MOD_SHIFT && osk->shifted_char_sets) {
+        return osk->num_shifted_rows;
     }
 
-    return effective_num_rows;
+    return osk->num_char_rows;
 }
 
 void osk_validate_row_index(OnScreenKeyboard* osk)
@@ -93,7 +93,7 @@ const SpecialKeySet* osk_get_effective_row_ptr(const OnScreenKeyboard* osk, int 
     }
 
     const SpecialKeySet* active_char_set = osk->char_sets;
-    if (osk->modifier_mask & OSK_MOD_SHIFT && osk->shifted_char_sets) {
+    if (get_physical_modifier_mask(osk) & OSK_MOD_SHIFT && osk->shifted_char_sets) {
         active_char_set = osk->shifted_char_sets;
     }
 
@@ -133,6 +133,16 @@ int get_physical_modifier_mask(const OnScreenKeyboard* osk)
     if (osk->mod_gui) mask |= OSK_MOD_GUI;
     if (osk->mod_shift) mask |= OSK_MOD_SHIFT;
     return mask;
+}
+
+const SpecialKeySet* get_active_special_set(const OnScreenKeyboard* osk)
+{
+    const SpecialKeySet* active_set = &osk->control_set;
+    if (osk->num_total_special_sets > 0 && osk->all_special_sets &&
+        osk->set_idx >= 0 && osk->set_idx < osk->num_total_special_sets) {
+        active_set = &osk->all_special_sets[osk->set_idx];
+    }
+    return active_set;
 }
 
 void osk_load_layout(OnScreenKeyboard* osk, const char* path)
@@ -211,6 +221,43 @@ void osk_make_set_available(OnScreenKeyboard* osk, const char* path)
     add_to_available_list(osk, path);
 }
 
+static void osk_build_static_control_set(OnScreenKeyboard* osk)
+{
+    if (!osk) return;
+
+    if (osk->control_set.keys) {
+        free_special_key_set_contents(&osk->control_set);
+        osk->control_set.keys = NULL;
+        osk->control_set.num_keys = 0;
+    }
+
+    static const SpecialKey osk_special_set_action_keys[] = {
+        {.display_name = "OSK Pos", .type = SK_INTERNAL_CMD, .sequence = NULL, .keycode = 0, .mod = KMOD_NONE, .command = CMD_OSK_TOGGLE_POSITION},
+        {.display_name = "Ctrl",  .type = SK_MOD_CTRL,  .sequence = NULL, .keycode = SDLK_LCTRL, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Alt",   .type = SK_MOD_ALT,   .sequence = NULL, .keycode = SDLK_LALT, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "GUI",   .type = SK_MOD_GUI,   .sequence = NULL, .keycode = SDLK_LGUI,  .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Esc",   .type = SK_SEQUENCE,  .sequence = "\x1b", .keycode = SDLK_ESCAPE, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Tab",   .type = SK_SEQUENCE,  .sequence = "\t", .keycode = SDLK_TAB, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Enter", .type = SK_SEQUENCE,  .sequence = "\r", .keycode = SDLK_RETURN, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Space", .type = SK_SEQUENCE,  .sequence = " ", .keycode = SDLK_SPACE, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Bksp",  .type = SK_SEQUENCE,  .sequence = "\x7f", .keycode = SDLK_BACKSPACE, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Del",   .type = SK_SEQUENCE, .sequence = "\x1b[3~", .keycode = SDLK_DELETE, .mod = KMOD_NONE, .command = CMD_NONE},
+        {.display_name = "Shift", .type = SK_MOD_SHIFT, .sequence = NULL, .keycode = SDLK_LSHIFT, .mod = KMOD_NONE, .command = CMD_NONE},
+    };
+
+    osk->control_set.keys = malloc(sizeof(osk_special_set_action_keys));
+    if (osk->control_set.keys) {
+        memcpy(osk->control_set.keys, osk_special_set_action_keys, sizeof(osk_special_set_action_keys));
+        osk->control_set.num_keys = sizeof(osk_special_set_action_keys) / sizeof(osk_special_set_action_keys[0]);
+        for (int i = 0; i < osk->control_set.num_keys; i++) {
+            if (osk->control_set.keys[i].display_name)
+                osk->control_set.keys[i].display_name = strdup(osk->control_set.keys[i].display_name);
+            if (osk->control_set.keys[i].sequence)
+                osk->control_set.keys[i].sequence = strdup(osk->control_set.keys[i].sequence);
+        }
+    }
+}
+
 void osk_init_all_sets(OnScreenKeyboard* osk)
 {
     if (!osk) {
@@ -220,30 +267,8 @@ void osk_init_all_sets(OnScreenKeyboard* osk)
 
     DEBUG_LOG("Initializing all OSK key sets");
 
-    // Initialize built-in control set
-    if (!osk->control_set.keys) {
-        static const SpecialKey osk_special_set_action_keys[] = {
-            {.display_name = "OSK Pos", .type = SK_INTERNAL_CMD, .sequence = NULL, .keycode = 0, .mod = KMOD_NONE, .command = CMD_OSK_TOGGLE_POSITION},
-            {.display_name = "Ctrl",  .type = SK_MOD_CTRL,  .sequence = NULL, .keycode = SDLK_LCTRL, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Alt",   .type = SK_MOD_ALT,   .sequence = NULL, .keycode = SDLK_LALT, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "GUI",   .type = SK_MOD_GUI,   .sequence = NULL, .keycode = SDLK_LGUI,  .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Esc",   .type = SK_SEQUENCE,  .sequence = "\x1b", .keycode = SDLK_ESCAPE, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Tab",   .type = SK_SEQUENCE,  .sequence = "\t", .keycode = SDLK_TAB, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Enter", .type = SK_SEQUENCE,  .sequence = "\r", .keycode = SDLK_RETURN, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Space", .type = SK_SEQUENCE,  .sequence = " ", .keycode = SDLK_SPACE, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Bksp",  .type = SK_SEQUENCE, .sequence = "\b", .keycode = SDLK_BACKSPACE, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Del",   .type = SK_SEQUENCE, .sequence = "\x1b[3~", .keycode = SDLK_DELETE, .mod = KMOD_NONE, .command = CMD_NONE},
-            {.display_name = "Shift", .type = SK_MOD_SHIFT, .sequence = NULL, .keycode = SDLK_LSHIFT, .mod = KMOD_NONE, .command = CMD_NONE},
-        };
+    osk_build_static_control_set(osk);
 
-        osk->control_set.keys = malloc(sizeof(osk_special_set_action_keys));
-        if (osk->control_set.keys) {
-            memcpy(osk->control_set.keys, osk_special_set_action_keys, sizeof(osk_special_set_action_keys));
-            osk->control_set.num_keys = sizeof(osk_special_set_action_keys) / sizeof(osk_special_set_action_keys[0]);
-        }
-    }
-
-    // Load available key sets
     for (int i = 0; i < osk->num_available_sets; i++) {
         if (osk->available_sets[i]) {
             osk_add_custom_set(osk, osk->available_sets[i]);
@@ -262,39 +287,20 @@ void osk_add_custom_set(OnScreenKeyboard* osk, const char* path)
 
     DEBUG_LOG("Adding custom OSK set from: %s", path);
 
-    FILE* file = fopen(path, "r");
-    if (!file) {
-        ERROR_LOG("Failed to open key set file: %s", path);
+    // Parse the whole .keys file into a single named set.
+    SpecialKeySet parsed = osk_parse_key_set_file(osk, path);
+    if (!parsed.keys || parsed.num_keys == 0) {
+        WARN_LOG("No valid keys found in: %s", path);
+        free_special_key_set_contents(&parsed);
         return;
     }
 
-    // Parse key set file
-    char line[256];
-    SpecialKey key;
-    bool found_keys = false;
+    // Register by full path so osk_rebuild_control_set_dynamic_keys()
+    // can re-open the file. Matching on removal is done by base name.
+    add_loaded_key_set_name(osk, path);
 
-    while (fgets(line, sizeof(line), file)) {
-        // Remove newline
-        char* newline = strchr(line, '\n');
-        if (newline) *newline = '\0';
-
-        // Skip empty lines and comments
-        if (line[0] == '\0' || line[0] == '#') continue;
-
-        if (parse_key_set_line(line, &key)) {
-            // Add to control set
-            osk_rebuild_control_set_dynamic_keys(osk);
-            found_keys = true;
-        }
-    }
-
-    fclose(file);
-
-    if (found_keys) {
-        INFO_LOG("Successfully added custom key set: %s", path);
-    } else {
-        WARN_LOG("No valid keys found in: %s", path);
-    }
+    osk_rebuild_control_set_dynamic_keys(osk);
+    INFO_LOG("Successfully added custom key set: %s (%d keys)", path, parsed.num_keys);
 }
 
 void osk_remove_custom_set(OnScreenKeyboard* osk, const char* name)

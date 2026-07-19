@@ -42,4 +42,14 @@ void config_print_help(const char* program_name);
  */
 void config_cleanup(Config* config);
 
+/**
+ * @brief Loads configuration from a file.
+ * Config file format: simple key=value pairs, lines starting with # are comments.
+ * Search order: $XDG_CONFIG_HOME/vaixterm/vaixterm.conf, then ~/.config/vaixterm/vaixterm.conf
+ * @param config Configuration structure to update.
+ * @param explicit_path Optional explicit path to config file. If NULL, uses default search paths.
+ * @return true if config file was loaded, false otherwise (defaults will be used).
+ */
+bool config_load_from_file(Config* config, const char* explicit_path);
+
 #endif // CONFIG_MANAGER_H

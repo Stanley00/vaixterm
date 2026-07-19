@@ -28,7 +28,7 @@
  * @param char_h Character height in pixels
  * @return int Y position in pixels
  */
-int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int win_h, int char_h);
+int get_osk_y_position(const OnScreenKeyboard* osk, const Terminal* term, int win_h, int bar_h);
 
 /**
  * @brief Get the current number of character rows in the active layout
@@ -125,5 +125,16 @@ void osk_free_all_sets(OnScreenKeyboard* osk);
  * @return int Modifier mask
  */
 int get_physical_modifier_mask(const OnScreenKeyboard* osk);
+
+/**
+ * @brief Get the currently active special key set
+ *
+ * Returns the control set when no dynamic sets are loaded or when
+ * set_idx is out of range. Otherwise returns the dynamic set at set_idx.
+ *
+ * @param osk Pointer to the OSK structure
+ * @return const SpecialKeySet* Pointer to the active special key set
+ */
+const SpecialKeySet* get_active_special_set(const OnScreenKeyboard* osk);
 
 #endif // OSK_CORE_H

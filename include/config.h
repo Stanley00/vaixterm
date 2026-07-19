@@ -41,9 +41,9 @@
 #define ACTION_BUTTON_TOGGLE_OSK  SDL_CONTROLLER_BUTTON_X
 #define ACTION_BUTTON_SPACE       SDL_CONTROLLER_BUTTON_Y
 
-#define ACTION_BUTTON_TAB         SDL_CONTROLLER_BUTTON_BACK
-#define ACTION_BUTTON_ENTER       SDL_CONTROLLER_BUTTON_START
-// #define ACTION_BUTTON_EXIT        SDL_CONTROLLER_BUTTON_GUIDE // This is now handled by a BACK+START combo in main.c
+#define ACTION_BUTTON_TAB         SDL_CONTROLLER_BUTTON_BACK   // "Select" on most controllers
+#define ACTION_BUTTON_ENTER       SDL_CONTROLLER_BUTTON_START  // "Start" on most controllers
+// #define ACTION_BUTTON_EXIT        SDL_CONTROLLER_BUTTON_GUIDE // This is now handled by a SELECT+START combo
 
 // --- Optional Action Mappings ---
 // These are not essential for basic operation but can be useful.
@@ -57,6 +57,7 @@
 
 
 // --- Default Terminal Configuration ---
+#define VERSION "1.0.0"
 #define DEFAULT_WINDOW_WIDTH 640
 #define DEFAULT_WINDOW_HEIGHT 480
 #define DEFAULT_FONT_SIZE_POINTS 12
@@ -68,5 +69,6 @@
 // The initial delay before a held button starts repeating.
 #define BUTTON_REPEAT_INITIAL_DELAY_MS 250
 // The interval between subsequent repeats of a held button.
-#define BUTTON_REPEAT_INTERVAL_MS 75
+#define BUTTON_REPEAT_INTERVAL_MS 100
+
 #endif // INPUT_CONFIG_H

@@ -20,9 +20,6 @@
 #include <SDL_ttf.h>
 #include "terminal_state.h"
 
-// Function pointer types for display name callbacks
-typedef const char* (*OSK_GetDisplayNameFunc)(const OnScreenKeyboard* osk, int set_idx, int char_idx);
-
 /**
  * @brief Render the complete On-Screen Keyboard
  *
@@ -39,7 +36,7 @@ typedef const char* (*OSK_GetDisplayNameFunc)(const OnScreenKeyboard* osk, int s
  * @param char_h Character height in pixels
  */
 void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, const Terminal* term, 
-                int win_w, int win_h, int char_w, int char_h);
+                int win_w, int win_h, int char_w, int char_h, const Config* config);
 
 /**
  * @brief Render the key tape (display of pressed keys)
@@ -96,7 +93,7 @@ void render_osk_special(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard
  * @param char_h Character height in pixels
  */
 void render_modifier_indicators(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk,
-                                int win_w, int osk_y, int char_w, int char_h);
+                                int win_w, int osk_y, int char_h, int char_w);
 
 /**
  * @brief Get the width needed for modifier indicators
@@ -106,19 +103,6 @@ void render_modifier_indicators(SDL_Renderer* renderer, TTF_Font* font, OnScreen
  * @return int Width in pixels
  */
 int get_modifier_indicators_width(TTF_Font* font, int char_w);
-
-/**
- * @brief Calculate fixed key width for a set of keys
- *
- * @param font Font to use for calculation
- * @param osk Pointer to the OSK structure
- * @param set_len Length of the key set
- * @param char_w Character width in pixels
- * @param get_name_func Function to get display names
- * @return int Calculated width in pixels
- */
-int calculate_fixed_key_width(TTF_Font* font, OnScreenKeyboard* osk, int set_len, 
-                              int char_w, OSK_GetDisplayNameFunc get_name_func);
 
 /**
  * @brief Invalidate the OSK render cache

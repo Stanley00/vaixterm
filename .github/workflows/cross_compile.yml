@@ -58,7 +58,17 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y file build-essential pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev zip
-    
+
+    - name: Fetch libvterm source
+      run: |
+        VTERM_VERSION=0.3.3
+        mkdir -p vendor/libvterm
+        wget -q "http://archive.ubuntu.com/ubuntu/pool/universe/libv/libvterm/libvterm_${VTERM_VERSION}.orig.tar.gz" -O /tmp/libvterm.tar.gz
+        tar xzf /tmp/libvterm.tar.gz -C /tmp
+        cp -r /tmp/libvterm-${VTERM_VERSION}/src/ vendor/libvterm/src
+        cp -r /tmp/libvterm-${VTERM_VERSION}/include/ vendor/libvterm/include
+        echo "libvterm ${VTERM_VERSION} source fetched into vendor/libvterm/"
+
     - name: Build VaixTerm
       run: |
         # Set environment variables for cross-compilation
@@ -72,32 +82,54 @@ jobs:
         # Verify the binary
         file vaixterm || true
         
-        # Create release directory
         mkdir -p release
         cp vaixterm release/
         cp -r res/ release/
-        
-        # Create a tar.gz of the release
         tar -czvf ./packages/${{ env.ARTIFACT_PREFIX }}.tar.gz -C release .
+
+        cp vaixterm packages/
     
     - name: Create Packages
-      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
       run: |
         ./packages/build_portmaster.sh
         ./packages/build_muos.sh
         
         # List files for debugging
+        ls -la packages/
+        
+        # Rename to artifact prefix
         mv packages/VaixTerm.muxapp packages/${{ env.ARTIFACT_PREFIX }}.muxapp
         mv packages/VaixTerm-PortMaster.zip packages/${{ env.ARTIFACT_PREFIX }}.zip
     
-    - name: Upload Artifacts
+    - name: Upload Binary
       uses: actions/upload-artifact@v4
       with:
-        name: vaixterm-artifacts
-        path: |
-          packages/${{ env.ARTIFACT_PREFIX }}.tar.gz
-          packages/${{ env.ARTIFACT_PREFIX }}.zip
-          packages/${{ env.ARTIFACT_PREFIX }}.muxapp
+        name: vaixterm-binary
+        path: packages/${{ env.ARTIFACT_PREFIX }}.tar.gz
+        retention-days: 5
+        if-no-files-found: error
+
+    - name: Upload Binary Executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: vaixterm-exec
+        path: packages/vaixterm
+        retention-days: 5
+        if-no-files-found: error
+
+    - name: Upload PortMaster Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: vaixterm-portmaster
+        path: packages/${{ env.ARTIFACT_PREFIX }}.zip
+        retention-days: 5
+        if-no-files-found: error
+
+    - name: Upload MUOS Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: vaixterm-muos
+        path: packages/${{ env.ARTIFACT_PREFIX }}.muxapp
         retention-days: 5
         if-no-files-found: error
     
@@ -105,6 +137,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
+        prerelease: true
         generate_release_notes: true
         files: |
           packages/${{ env.ARTIFACT_PREFIX }}.tar.gz
@@ -118,6 +151,22 @@ jobs:
           - **PortMaster Package**: [${{ env.ARTIFACT_PREFIX }}.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_PREFIX }}.zip)
           - **MUOS Package**: [${{ env.ARTIFACT_PREFIX }}.muxapp](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.ARTIFACT_PREFIX }}.muxapp)
           
+          ## Controls
+          | Button | OSK Off | OSK On |
+          |--------|---------|--------|
+          | D-Pad | Arrow keys | Navigate OSK |
+          | A | - | Select key |
+          | B | Backspace | Backspace |
+          | X | Toggle OSK | Toggle OSK |
+          | Y | Space | Space |
+          | Start | Enter | Enter |
+          | Select | Tab | Tab |
+          | L1 | Scroll Up | Shift |
+          | R1 | Scroll Down | Ctrl |
+          | L2 | - | Alt |
+          | R2 | - | GUI |
+          | Select+Start | Exit | Exit |
+          
           ## Installation Instructions
           
           ### Manual Installation
@@ -126,19 +175,20 @@ jobs:
           3. Run: `./vaixterm`
           
           ### PortMaster Installation
-          1. Copy the `${{ env.ARTIFACT_PREFIX }}.zip` to the `ports` directory on your SD card (typically in the `roms/ports` or `roms2/ports` directory)
-          2. Launch PortMaster from your device's app launcher
-          3. Navigate to the "Ready to Install" section
-          4. Select VaixTerm and follow the on-screen instructions
+          1. Copy the `${{ env.ARTIFACT_PREFIX }}.zip` to the `ports` directory on your SD card
+          2. Copy the `VaixTerm.sh` file to the `roms/Ports` directory on your SD card
+          3. Launch PortMaster from your device's app launcher
+          4. Navigate to the "Ready to Install" section
+          5. Select VaixTerm and follow the on-screen instructions
           
           ### MUOS Installation
-          1. Copy the `${{ env.ARTIFACT_PREFIX }}.muxapp` file to the root of your SD card
+          1. Copy the `${{ env.ARTIFACT_PREFIX }}.muxapp` file to `/mnt/mmc/ARCHIVE` on your SD card
           2. On your device, go to: `Apps` > `Archive`
           3. Select the `.muxapp` file to install it
           4. The terminal will be available in the `Apps` section of your MUOS launcher
           
           ## Notes
-          - For MUOS, ensure you have the latest version of the firmware installed
+          - For MUOS, ensure you have the latest version of the firmware installed (2601.0 Jacaranda or later)
           - On some devices, you may need to restart the device after installing new applications
           - Check the [GitHub repository](https://github.com/${{ github.repository }}) for additional documentation and support
           

@@ -1,6 +1,10 @@
 #include "input_mapper.h"
 #include "error_codes.h"
 #include "terminal.h"
+#include "terminal_libvterm.h"
+#include "event_handler.h"
+#include "osk_core.h"
+#include "keyboard_handler.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,15 +12,14 @@
 #include <SDL.h>
 
 // External mappings from original input.c
-extern const ControllerButtonMapping controller_button_map[];
-extern const KeyMapping key_map[];
-extern const int num_controller_button_mappings;
-extern const int num_key_mappings;
-
-// Default controller button mappings
+// Documented design (SPEC.md / config.h):
+//   D-Pad      -> arrows
+//   A = type/select, B = backspace, Y = space, X = toggle OSK
+//   L1/R1/triggers act as held modifiers (handled in event_handler.c),
+//   so they are intentionally NOT bound here. Scrolling uses the sticks.
 const ControllerButtonMapping controller_button_map[] = {
     {SDL_CONTROLLER_BUTTON_A, ACTION_SELECT},
-    {SDL_CONTROLLER_BUTTON_B, ACTION_BACKSPACE},  // Fixed: B should be backspace
+    {SDL_CONTROLLER_BUTTON_B, ACTION_BACKSPACE},
     {SDL_CONTROLLER_BUTTON_Y, ACTION_SPACE},
     {SDL_CONTROLLER_BUTTON_BACK, ACTION_TAB},
     {SDL_CONTROLLER_BUTTON_X, ACTION_TOGGLE_OSK},
@@ -25,6 +28,8 @@ const ControllerButtonMapping controller_button_map[] = {
     {SDL_CONTROLLER_BUTTON_DPAD_DOWN, ACTION_DOWN},
     {SDL_CONTROLLER_BUTTON_DPAD_LEFT, ACTION_LEFT},
     {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, ACTION_RIGHT},
+    {SDL_CONTROLLER_BUTTON_LEFTSTICK, ACTION_SCROLL_UP},
+    {SDL_CONTROLLER_BUTTON_RIGHTSTICK, ACTION_SCROLL_DOWN},
 };
 
 const int num_controller_button_mappings = sizeof(controller_button_map) / sizeof(controller_button_map[0]);
@@ -41,78 +46,6 @@ TerminalAction map_cbutton_to_action(SDL_GameControllerButton button)
     }
     DEBUG_LOG("Controller button %d has no mapping", button);
     return ACTION_NONE;
-}
-
-SDL_Keymod get_combined_modifiers(const OnScreenKeyboard* osk)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return KMOD_NONE;
-    }
-
-    SDL_Keymod combined = KMOD_NONE;
-    if (osk->mod_ctrl) combined |= KMOD_CTRL;
-    if (osk->mod_alt) combined |= KMOD_ALT;
-    if (osk->mod_gui) combined |= KMOD_GUI;
-    if (osk->mod_shift) combined |= KMOD_SHIFT;
-
-    return combined;
-}
-
-SDL_Keymod get_effective_send_modifiers(const OnScreenKeyboard* osk)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return KMOD_NONE;
-    }
-
-    SDL_Keymod effective = get_combined_modifiers(osk);
-    
-    // Clear one-shot modifiers after use
-    if (osk->mod_alt) {
-        // Alt is one-shot, clear it
-        // Note: This would need to be handled in the calling function
-    }
-    if (osk->mod_gui) {
-        // GUI is one-shot, clear it
-        // Note: This would need to be handled in the calling function
-    }
-
-    return effective;
-}
-
-void clear_one_shot_modifiers(OnScreenKeyboard* osk, bool* needs_render_ptr)
-{
-    if (!osk) {
-        ERROR_LOG("Invalid parameter: osk=%p", (void*)osk);
-        return;
-    }
-
-    bool cleared = false;
-    if (osk->mod_alt) {
-        osk->mod_alt = false;
-        cleared = true;
-    }
-    if (osk->mod_gui) {
-        osk->mod_gui = false;
-        cleared = true;
-    }
-
-    if (cleared && needs_render_ptr) {
-        *needs_render_ptr = true;
-    }
-
-    DEBUG_LOG("Cleared one-shot modifiers");
-}
-
-SDL_Keymod osk_mask_to_sdl_mod(int osk_mask)
-{
-    SDL_Keymod sdl_mod = KMOD_NONE;
-    if (osk_mask & OSK_MOD_CTRL) sdl_mod |= KMOD_CTRL;
-    if (osk_mask & OSK_MOD_ALT) sdl_mod |= KMOD_ALT;
-    if (osk_mask & OSK_MOD_GUI) sdl_mod |= KMOD_GUI;
-    if (osk_mask & OSK_MOD_SHIFT) sdl_mod |= KMOD_SHIFT;
-    return sdl_mod;
 }
 
 void init_input_devices(OnScreenKeyboard* osk, const Config* config)
@@ -196,48 +129,6 @@ bool should_process_key(const SDL_KeyboardEvent* key)
     return true;
 }
 
-TerminalAction get_key_combination_action(SDL_Keycode keycode, SDL_Keymod mod)
-{
-    // Check for specific key combinations
-    if (mod & KMOD_CTRL) {
-        switch (keycode) {
-            case SDLK_c: return ACTION_COPY;
-            case SDLK_v: return ACTION_PASTE;
-            case SDLK_z: return ACTION_UNDO;
-            case SDLK_y: return ACTION_REDO;
-            case SDLK_f: return ACTION_FIND;
-            case SDLK_s: return ACTION_SAVE;
-            case SDLK_o: return ACTION_OPEN;
-            case SDLK_q: return ACTION_QUIT;
-            default: break;
-        }
-    }
-
-    if (mod & KMOD_ALT) {
-        switch (keycode) {
-            case SDLK_TAB: return ACTION_WINDOW_NEXT;
-            case SDLK_F4: return ACTION_WINDOW_CLOSE;
-            default: break;
-        }
-    }
-
-    if (mod & (KMOD_CTRL | KMOD_SHIFT)) {
-        switch (keycode) {
-            case SDLK_c: return ACTION_COPY_COLUMN;
-            case SDLK_v: return ACTION_PASTE_COLUMN;
-            case SDLK_z: return ACTION_REDO;
-            default: break;
-        }
-    }
-
-    return ACTION_NONE;
-}
-
-bool is_modifier_pressed(SDL_Keymod mod, SDL_Keymod modifier)
-{
-    return (mod & modifier) != 0;
-}
-
 bool is_modifier_key(SDL_Keycode keycode)
 {
     switch (keycode) {
@@ -257,47 +148,208 @@ bool is_modifier_key(SDL_Keycode keycode)
 }
 
 void process_direct_terminal_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int master_fd) {
-    (void)osk;
-    if (!term || !needs_render) {
-        return;
-    }
+    (void)osk; (void)master_fd;
+    if (!term || !needs_render) return;
     
-    char seq[32];
     switch (action) {
         case ACTION_UP:
-            strcpy(seq, "\033[A");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_UP, VTERM_MOD_NONE);
             break;
         case ACTION_DOWN:
-            strcpy(seq, "\033[B");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_DOWN, VTERM_MOD_NONE);
             break;
         case ACTION_LEFT:
-            strcpy(seq, "\033[D");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_LEFT, VTERM_MOD_NONE);
             break;
         case ACTION_RIGHT:
-            strcpy(seq, "\033[C");
-            write(master_fd, seq, strlen(seq));
+            terminal_libvterm_key(term, VTERM_KEY_RIGHT, VTERM_MOD_NONE);
             break;
         case ACTION_BACKSPACE:
-            write(master_fd, "\177", 1);
+            terminal_libvterm_key(term, VTERM_KEY_BACKSPACE, VTERM_MOD_NONE);
             break;
         case ACTION_ENTER:
-            write(master_fd, "\r", 1);
+            terminal_libvterm_key(term, VTERM_KEY_ENTER, VTERM_MOD_NONE);
             break;
         case ACTION_TAB:
-            write(master_fd, "\t", 1);
+            terminal_libvterm_key(term, VTERM_KEY_TAB, VTERM_MOD_NONE);
             break;
         case ACTION_ESCAPE:
-            write(master_fd, "\033", 1);
+            terminal_libvterm_key(term, VTERM_KEY_ESCAPE, VTERM_MOD_NONE);
             break;
         case ACTION_SPACE:
-            write(master_fd, " ", 1);
+            terminal_libvterm_unichar(term, ' ', VTERM_MOD_NONE);
+            break;
+        case ACTION_SELECT:
+            terminal_libvterm_unichar(term, ' ', VTERM_MOD_NONE);
             break;
         default:
             break;
     }
+}
+
+static void osk_navigate_left(OnScreenKeyboard* osk, bool* needs_render)
+{
+    if (osk->mode == OSK_MODE_CHARS) {
+        const SpecialKeySet* row = osk_get_effective_row_ptr(osk, osk->current_char_row);
+        if (row && row->num_keys > 0) {
+            osk->char_idx--;
+            if (osk->char_idx < 0) osk->char_idx = row->num_keys - 1;
+        }
+    } else {
+        const SpecialKeySet* active_set = get_active_special_set(osk);
+        if (active_set && active_set->num_keys > 0) {
+            osk->char_idx--;
+            if (osk->char_idx < 0) osk->char_idx = active_set->num_keys - 1;
+        }
+    }
+    *needs_render = true;
+}
+
+static void osk_navigate_right(OnScreenKeyboard* osk, bool* needs_render)
+{
+    if (osk->mode == OSK_MODE_CHARS) {
+        const SpecialKeySet* row = osk_get_effective_row_ptr(osk, osk->current_char_row);
+        if (row && row->num_keys > 0) {
+            osk->char_idx++;
+            if (osk->char_idx >= row->num_keys) osk->char_idx = 0;
+        }
+    } else {
+        const SpecialKeySet* active_set = get_active_special_set(osk);
+        if (active_set && active_set->num_keys > 0) {
+            osk->char_idx++;
+            if (osk->char_idx >= active_set->num_keys) osk->char_idx = 0;
+        }
+    }
+    *needs_render = true;
+}
+
+static void osk_navigate_up(OnScreenKeyboard* osk, bool* needs_render)
+{
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        // Cycle backwards through available key sets (no-op when only one exists)
+        if (osk->num_total_special_sets > 1) {
+            osk->set_idx = (osk->set_idx - 1 + osk->num_total_special_sets) % osk->num_total_special_sets;
+        }
+        osk->char_idx = 0;
+    } else {
+        int num_rows = get_current_num_char_rows(osk);
+        if (num_rows > 0) {
+            osk->current_char_row--;
+            if (osk->current_char_row < 0) osk->current_char_row = num_rows - 1;
+            osk_validate_row_index(osk);
+            const SpecialKeySet* row = osk_get_effective_row_ptr(osk, osk->current_char_row);
+            if (row && osk->char_idx >= row->num_keys) {
+                osk->char_idx = row->num_keys - 1;
+            }
+        }
+    }
+    *needs_render = true;
+}
+
+static void osk_navigate_down(OnScreenKeyboard* osk, bool* needs_render)
+{
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        // Cycle forwards through available key sets (no-op when only one exists)
+        if (osk->num_total_special_sets > 1) {
+            osk->set_idx = (osk->set_idx + 1) % osk->num_total_special_sets;
+        }
+        osk->char_idx = 0;
+    } else {
+        int num_rows = get_current_num_char_rows(osk);
+        if (num_rows > 0) {
+            osk->current_char_row++;
+            if (osk->current_char_row >= num_rows) osk->current_char_row = 0;
+            osk_validate_row_index(osk);
+            const SpecialKeySet* row = osk_get_effective_row_ptr(osk, osk->current_char_row);
+            if (row && osk->char_idx >= row->num_keys) {
+                osk->char_idx = row->num_keys - 1;
+            }
+        }
+    }
+    *needs_render = true;
+}
+
+static InternalCommand osk_type_selected_key(Terminal* term, OnScreenKeyboard* osk, bool* needs_render)
+{
+    const SpecialKey* key = NULL;
+
+    if (osk->mode == OSK_MODE_CHARS) {
+        key = osk_get_effective_char_ptr(osk, osk->current_char_row, osk->char_idx);
+    } else {
+        const SpecialKeySet* active_set = &osk->control_set;
+        if (osk->num_total_special_sets > 0 && osk->all_special_sets &&
+            osk->set_idx >= 0 && osk->set_idx < osk->num_total_special_sets) {
+            active_set = &osk->all_special_sets[osk->set_idx];
+        }
+        if (osk->char_idx >= 0 && osk->char_idx < active_set->num_keys) {
+            key = &active_set->keys[osk->char_idx];
+        }
+    }
+
+    if (!key) return CMD_NONE;
+
+    switch (key->type) {
+        case SK_STRING:
+        case SK_SEQUENCE:
+        case SK_MACRO:
+            if (key->sequence) {
+                VTermKey vk = sdl_key_to_vterm(key->keycode);
+                if (vk != VTERM_KEY_NONE) {
+                    terminal_libvterm_key(term, vk, VTERM_MOD_NONE);
+                } else if (key->keycode == SDLK_SPACE) {
+                    terminal_libvterm_unichar(term, ' ', VTERM_MOD_NONE);
+                } else {
+                    terminal_libvterm_feed(term, key->sequence, strlen(key->sequence));
+                }
+            } else if (key->keycode != SDLK_UNKNOWN) {
+                // Encode the key. A literal character from a .kb layout is
+                // stored as keycode == the codepoint itself (e.g. 'q'),
+                // for which sdl_key_to_vterm() returns VTERM_KEY_NONE.
+                // In that case send it as a Unicode char; for real
+                // special keys (Backspace, Tab, Enter, Esc, arrows,
+                // F-keys...) sdl_key_to_vterm() maps them correctly.
+                VTermKey vk = sdl_key_to_vterm(key->keycode);
+                if (vk != VTERM_KEY_NONE) {
+                    terminal_libvterm_key(term, vk, VTERM_MOD_NONE);
+                } else {
+                    terminal_libvterm_unichar(term, (uint32_t)key->keycode, VTERM_MOD_NONE);
+                }
+            }
+            break;
+        case SK_MOD_CTRL:
+            osk->mod_ctrl = !osk->mod_ctrl;
+            break;
+        case SK_MOD_ALT:
+            osk->mod_alt = !osk->mod_alt;
+            break;
+        case SK_MOD_SHIFT:
+            osk->mod_shift = !osk->mod_shift;
+            break;
+        case SK_MOD_GUI:
+            osk->mod_gui = !osk->mod_gui;
+            break;
+        case SK_LOAD_FILE:
+            if (key->sequence) {
+                osk_add_custom_set(osk, key->sequence);
+            }
+            *needs_render = true;
+            return CMD_NONE;
+        case SK_UNLOAD_FILE:
+            if (key->sequence) {
+                const char* name = strrchr(key->sequence, '/');
+                name = name ? name + 1 : key->sequence;
+                osk_remove_custom_set(osk, name);
+            }
+            *needs_render = true;
+            return CMD_NONE;
+        case SK_INTERNAL_CMD:
+            *needs_render = true;
+            return key->command;
+        default:
+            break;
+    }
+    *needs_render = true;
+    return CMD_NONE;
 }
 
 InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScreenKeyboard* osk, bool* needs_render, int master_fd)
@@ -305,17 +357,47 @@ InternalCommand process_osk_action(TerminalAction action, Terminal* term, OnScre
     if (!term || !osk || !needs_render) {
         return CMD_NONE;
     }
-    
+
     switch (action) {
-        case ACTION_TOGGLE_OSK:
-            osk->active = !osk->active;
-            *needs_render = true;
-            return CMD_NONE;
         case ACTION_SCROLL_UP:
             terminal_scroll_view(term, SDL_max(1, term->rows / 2), needs_render);
             return CMD_NONE;
         case ACTION_SCROLL_DOWN:
             terminal_scroll_view(term, -SDL_max(1, term->rows / 2), needs_render);
+            return CMD_NONE;
+        case ACTION_LEFT:
+            osk_navigate_left(osk, needs_render);
+            return CMD_NONE;
+        case ACTION_RIGHT:
+            osk_navigate_right(osk, needs_render);
+            return CMD_NONE;
+        case ACTION_UP:
+            osk_navigate_up(osk, needs_render);
+            return CMD_NONE;
+        case ACTION_DOWN:
+            osk_navigate_down(osk, needs_render);
+            return CMD_NONE;
+        case ACTION_SELECT:
+            return osk_type_selected_key(term, osk, needs_render);
+        case ACTION_ENTER:
+            terminal_libvterm_key(term, VTERM_KEY_ENTER, VTERM_MOD_NONE);
+            *needs_render = true;
+            return CMD_NONE;
+        case ACTION_SPACE:
+            terminal_libvterm_unichar(term, ' ', VTERM_MOD_NONE);
+            *needs_render = true;
+            return CMD_NONE;
+        case ACTION_BACKSPACE:
+            terminal_libvterm_key(term, VTERM_KEY_BACKSPACE, VTERM_MOD_NONE);
+            *needs_render = true;
+            return CMD_NONE;
+        case ACTION_TAB:
+            terminal_libvterm_key(term, VTERM_KEY_TAB, VTERM_MOD_NONE);
+            *needs_render = true;
+            return CMD_NONE;
+        case ACTION_ESCAPE:
+            terminal_libvterm_key(term, VTERM_KEY_ESCAPE, VTERM_MOD_NONE);
+            *needs_render = true;
             return CMD_NONE;
         default:
             process_direct_terminal_action(action, term, osk, needs_render, master_fd);

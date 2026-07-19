@@ -9,6 +9,7 @@
 
 #include "font_manager.h"
 #include "terminal.h"
+#include "error_codes.h"
 #include "osk_core.h"
 #include "osk_renderer.h"
 #include "glyph_cache.h"
@@ -26,13 +27,13 @@ bool font_change_size(TTF_Font** font, Config* config, Terminal* term, OnScreenK
 
     TTF_Font* new_font = TTF_OpenFont(config->font_path, new_font_size);
     if (!new_font) {
-        fprintf(stderr, "Failed to change font size to %d: %s\n", new_font_size, TTF_GetError());
+        ERROR_LOG("Failed to change font size to %d: %s", new_font_size, TTF_GetError());
         return false;
     }
 
     int new_char_w, new_char_h;
     if (TTF_SizeUTF8(new_font, "W", &new_char_w, &new_char_h) != 0 || new_char_w <= 0 || new_char_h <= 0) {
-        fprintf(stderr, "New font size %d has invalid character dimensions.\n", new_font_size);
+        ERROR_LOG("New font size %d has invalid character dimensions", new_font_size);
         TTF_CloseFont(new_font);
         return false;
     }
@@ -53,8 +54,7 @@ bool font_change_size(TTF_Font** font, Config* config, Terminal* term, OnScreenK
     }
     osk_key_cache_destroy(osk->key_cache);
     osk->key_cache = osk_key_cache_create();
-    osk->cached_set_idx = -1;
-    osk->cached_mod_mask = -1;
+    osk_invalidate_render_cache(osk);
 
     struct winsize ws = {
         .ws_row = (unsigned short)new_rows,
@@ -63,7 +63,7 @@ bool font_change_size(TTF_Font** font, Config* config, Terminal* term, OnScreenK
         .ws_ypixel = (unsigned short)config->win_h
     };
     if (ioctl(master_fd, TIOCSWINSZ, &ws) == -1) {
-        perror("ioctl(TIOCSWINSZ) failed on font resize");
+        ERROR_LOG("ioctl(TIOCSWINSZ) failed on font resize");
     }
 
     return true;

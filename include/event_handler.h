@@ -53,6 +53,8 @@ void event_process_and_repeat_action(TerminalAction action, Terminal* term, OnSc
  */
 void event_stop_repeating_action(TerminalAction action, ButtonRepeatState* repeat_state);
 
+void terminal_scroll_view(Terminal* term, int amount, bool* needs_render);
+
 /**
  * @brief Main event handler function.
  * @param event SDL event to handle.

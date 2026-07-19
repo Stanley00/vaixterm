@@ -59,6 +59,5 @@ void terminal_init_dirty_tracking(Terminal* term) {
     term->has_dirty_regions = false;
     term->dirty_min_y = -1;
     term->dirty_max_y = -1;
-    term->skip_render_frame = false;
     term->last_render_time = 0;
 }

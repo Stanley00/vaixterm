@@ -36,8 +36,8 @@
  * @param win_h Window height in pixels
  */
 void terminal_render(SDL_Renderer* renderer, Terminal* term, TTF_Font* font, 
-                    int char_w, int char_h, OnScreenKeyboard* osk, 
-                    bool force_full_render, int win_w, int win_h);
+                     int char_w, int char_h, OnScreenKeyboard* osk, 
+                     bool force_full_render, int win_w, int win_h, const Config* config);
 
 /**
  * @brief Render text at a specific position

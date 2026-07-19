@@ -138,4 +138,16 @@ bool add_to_available_list(OnScreenKeyboard* osk, const char* path);
  */
 void osk_rebuild_control_set_dynamic_keys(OnScreenKeyboard* osk);
 
+/**
+ * @brief Parse a .keys file into a single SpecialKeySet.
+ *
+ * All non-comment, non-empty lines are parsed via parse_key_set_line() and
+ * accumulated into one named set (name = file base name without extension).
+ *
+ * @param osk Pointer to the OSK structure (used for name registry)
+ * @param path Path to the .keys file
+ * @return SpecialKeySet Parsed set (keys == NULL if file empty/invalid)
+ */
+SpecialKeySet osk_parse_key_set_file(const OnScreenKeyboard* osk, const char* path);
+
 #endif // OSK_PARSER_H

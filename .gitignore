@@ -1,0 +1,5 @@
+vaixterm
+*.o
+*.dSYM
+.DS_Store
+vaixterm_profile
